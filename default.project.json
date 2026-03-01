@@ -1,0 +1,143 @@
+{
+  "name": "DistrictRobo",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder"
+      }
+    },
+
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Color": [
+            0.38823,
+            0.37254,
+            0.38823
+          ],
+          "Locked": true,
+          "Position": [
+            0,
+            -10,
+            0
+          ],
+          "Size": [
+            512,
+            20,
+            512
+          ]
+        }
+      },
+      "Zone_Safe": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "CanCollide": false,
+          "Transparency": 1,
+          "Position": [
+            0,
+            15,
+            0
+          ],
+          "Size": [
+            220,
+            30,
+            220
+          ]
+        }
+      },
+      "Zone_Danger": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "CanCollide": false,
+          "Transparency": 1,
+          "Position": [
+            320,
+            15,
+            0
+          ],
+          "Size": [
+            220,
+            30,
+            220
+          ]
+        }
+      },
+      "SellTerminal": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "CanCollide": false,
+          "Transparency": 0.2,
+          "Color": [
+            0.31373,
+            0.86275,
+            0.47059
+          ],
+          "Position": [
+            0,
+            4,
+            30
+          ],
+          "Size": [
+            6,
+            6,
+            6
+          ]
+        },
+        "ProximityPrompt": {
+          "$className": "ProximityPrompt",
+          "$properties": {
+            "ActionText": "Sell Materials",
+            "ObjectText": "Sell Terminal",
+            "HoldDuration": 0.3,
+            "MaxActivationDistance": 12
+          }
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Ambient": [
+          0,
+          0,
+          0
+        ],
+        "Brightness": 2,
+        "GlobalShadows": true,
+        "Outlines": false,
+        "Technology": "Voxel"
+      }
+    },
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}

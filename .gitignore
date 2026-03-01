@@ -1,0 +1,17 @@
+# Project place file
+*.rbxl
+*.rbxlx
+
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+# Rojo generated Files
+sourcemap.json
+
+# Logs / temp
+*.Logs
+*.tmp
+
+# Node (if ever used later)
+node_modules/
