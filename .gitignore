@@ -15,3 +15,20 @@ sourcemap.json
 
 # Node (if ever used later)
 node_modules/
+package-lock.json 
+dist/
+build/
+
+# Environment Variables / Secrets
+.env 
+.env.*
+secrets.*
+config.local.*
+*.key
+*.pem
+*.p12
+*.crt
+
+#OS junk
+.DS_Store
+Thumbs.db

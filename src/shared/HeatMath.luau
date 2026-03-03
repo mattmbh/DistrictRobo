@@ -19,7 +19,21 @@ function HeatMath.ApplyDecay(currentHeat: number, deltaTime: number, inDangerZon
 end
 
 function HeatMath.GetThreatLevel(districtHeat: number): number
-	return clamp(math.floor(districtHeat / Constants.Threat.StepHeat), 0, Constants.Threat.MaxLevel)
+	local thresholds = Constants.Threat.HeatThresholds
+	if typeof(thresholds) ~= "table" then
+		return 0
+	end
+
+	local level = 0
+	for thresholdLevel, minHeat in ipairs(thresholds) do
+		if districtHeat >= minHeat then
+			level = thresholdLevel
+		else
+			break
+		end
+	end
+
+	return clamp(level, 0, Constants.Threat.MaxLevel)
 end
 
 function HeatMath.ComputeDistrictHeat(playerHeatMap: {[number]: number}): number

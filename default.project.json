@@ -42,13 +42,13 @@
           "Locked": true,
           "Position": [
             0,
-            -10,
+            -5,
             0
           ],
           "Size": [
-            512,
-            20,
-            512
+            1200,
+            10,
+            1200
           ]
         }
       },
@@ -88,6 +88,29 @@
           ]
         }
       },
+      "DangerCoverBlock": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "CanCollide": true,
+          "Color": [
+            0.27843,
+            0.29412,
+            0.32157
+          ],
+          "Material": "Concrete",
+          "Position": [
+            320,
+            12,
+            -26
+          ],
+          "Size": [
+            24,
+            24,
+            8
+          ]
+        }
+      },
       "SellTerminal": {
         "$className": "Part",
         "$properties": {
@@ -101,7 +124,7 @@
           ],
           "Position": [
             0,
-            4,
+            8,
             30
           ],
           "Size": [

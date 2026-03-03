@@ -18,11 +18,11 @@ gui.ResetOnSpawn = false
 gui.Parent = playerGui
 
 local label = Instance.new("TextLabel")
-label.Size = UDim2.fromOffset(300, 44)
-label.Position = UDim2.fromScale(0.5, 0.08)
+label.Size = UDim2.fromOffset(240, 30)
+label.Position = UDim2.fromScale(0.5, 0.03)
 label.AnchorPoint = Vector2.new(0.5, 0.5)
 label.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-label.BackgroundTransparency = 0.35
+label.BackgroundTransparency = 0.5
 label.TextColor3 = Color3.fromRGB(240, 240, 240)
 label.TextScaled = true
 label.Font = Enum.Font.GothamBold

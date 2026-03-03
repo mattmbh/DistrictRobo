@@ -82,12 +82,12 @@ local function ensureSellTerminal(): ProximityPrompt
 		terminal.Size = Vector3.new(6, 6, 6)
 		terminal.Color = Color3.fromRGB(80, 220, 120)
 		terminal.Anchored = true
-		terminal.Position = Vector3.new(0, 4, 20)
+		terminal.Position = Vector3.new(0, 8, 20)
 		terminal.Parent = Workspace
 	end
 
 	if zoneSafe and zoneSafe:IsA("BasePart") then
-		local floorY = zoneSafe.Position.Y - (zoneSafe.Size.Y * 0.5) + 4
+		local floorY = zoneSafe.Position.Y - (zoneSafe.Size.Y * 0.5) + 8
 		terminal.Position = Vector3.new(zoneSafe.Position.X, floorY, zoneSafe.Position.Z + 30)
 	end
 
