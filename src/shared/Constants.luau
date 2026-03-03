@@ -122,6 +122,31 @@ Constants.Accessibility = {
 	ENABLE_SCREEN_PULSE = true,
 }
 
+Constants.CityLayout = {
+	UseBaseplateBounds = true,
+	WorldCenter = Vector3.new(0, 0, 0),
+	WorldHalfSizeXZ = Vector2.new(560, 560),
+	BoundsMargin = 8,
+	RoadWidthMain = 48,
+	RoadWidthSide = 32,
+	BlockSize = 140,
+	BlocksPerMainRoad = 3,
+	RoadThickness = 1,
+	BuildPadHeight = 1,
+	LaneMarkingsEnabled = true,
+	LaneMarkWidth = 0.45,
+	LaneMarkLength = 12,
+	LaneMarkGap = 10,
+	LaneMarkHeight = 0.06,
+	SidewalkEnabled = true,
+	SidewalkWidth = 4,
+	SidewalkHeight = 0.3,
+	RoadColor = Color3.fromRGB(33, 35, 39),
+	BuildPadColor = Color3.fromRGB(45, 47, 52),
+	LaneMarkColor = Color3.fromRGB(214, 214, 214),
+	SidewalkColor = Color3.fromRGB(90, 92, 98),
+}
+
 Constants.Audio = {
 	MAX_PLAYS_PER_SECOND = 6,
 	Cooldowns = {

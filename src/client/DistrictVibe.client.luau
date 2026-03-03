@@ -1,7 +1,6 @@
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -50,54 +49,52 @@ if not (atmosphere and atmosphere:IsA("Atmosphere")) then
 	atmosphere.Parent = Lighting
 end
 
-local currentDistrict = Constants.Districts.SAFE
-local sirenTime = 0
-
-local function applySafeVibe()
-	currentDistrict = Constants.Districts.SAFE
-	label.Text = "SAFE DISTRICT"
-	label.TextColor3 = Color3.fromRGB(230, 255, 235)
-	colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
-	colorCorrection.Saturation = 0
-	colorCorrection.Contrast = 0
-	bloom.Intensity = 0.2
-	bloom.Size = 18
-	atmosphere.Density = 0.2
-	atmosphere.Color = Color3.fromRGB(199, 214, 255)
+local function enforceDaySky()
+	for _, child in ipairs(Lighting:GetChildren()) do
+		if child:IsA("Sky") then
+			child:Destroy()
+		end
+	end
 end
 
-local function applyDangerVibe()
-	currentDistrict = Constants.Districts.DANGEROUS
-	label.Text = "DANGEROUS DISTRICT"
-	label.TextColor3 = Color3.fromRGB(255, 130, 130)
-	colorCorrection.Saturation = -0.15
-	colorCorrection.Contrast = 0.08
-	bloom.Intensity = 0.55
-	bloom.Size = 26
-	atmosphere.Density = 0.45
-	atmosphere.Color = Color3.fromRGB(150, 80, 80)
+local function applyBaseLighting()
+	Lighting.ClockTime = 13.5
+	Lighting.Brightness = 2.5
+	Lighting.ExposureCompensation = 0.3
+	Lighting.GlobalShadows = true
+	Lighting.Ambient = Color3.fromRGB(120, 120, 125)
+	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 155)
+
+	colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+	colorCorrection.Saturation = -0.05
+	colorCorrection.Contrast = 0.05
+	colorCorrection.Brightness = 0.02
+
+	bloom.Intensity = 0.12
+	bloom.Size = 14
+
+	atmosphere.Density = 0.18
+	atmosphere.Offset = 0
+	atmosphere.Color = Color3.fromRGB(210, 205, 195)
+	atmosphere.Decay = Color3.fromRGB(235, 215, 190)
+	atmosphere.Glare = 0.05
+	atmosphere.Haze = 0.45
 end
 
 districtChangedRemote.OnClientEvent:Connect(function(newDistrict: string)
 	print(("[DistrictVibe] District changed -> %s"):format(newDistrict))
 	if newDistrict == Constants.Districts.DANGEROUS then
-		applyDangerVibe()
+		label.Text = "DANGEROUS DISTRICT"
+		label.TextColor3 = Color3.fromRGB(255, 130, 130)
 	else
-		applySafeVibe()
+		label.Text = "SAFE DISTRICT"
+		label.TextColor3 = Color3.fromRGB(230, 255, 235)
 	end
+	applyBaseLighting()
 end)
 
-RunService.RenderStepped:Connect(function(deltaTime)
-	if currentDistrict == Constants.Districts.DANGEROUS then
-		sirenTime += deltaTime
-		local pulse = (math.sin(sirenTime * 2.5) + 1) * 0.5
-		colorCorrection.TintColor = Color3.fromRGB(
-			255,
-			math.floor(130 - (pulse * 50)),
-			math.floor(130 - (pulse * 50))
-		)
-	end
-end)
-
-applySafeVibe()
+label.Text = "SAFE DISTRICT"
+label.TextColor3 = Color3.fromRGB(230, 255, 235)
+enforceDaySky()
+applyBaseLighting()
 print("[DistrictVibe] Ready")
