@@ -125,30 +125,63 @@ local function buildAxisRoads(halfExtent: number, blockSize: number, mainWidth: 
 	return roads
 end
 
-local function createLaneMarks(
+local function collectStraightSpans(halfExtent: number, crossRoads: {RoadLine}): {{startPos: number, endPos: number}}
+	local spans = {}
+	local cursor = -halfExtent
+
+	for _, crossRoad in ipairs(crossRoads) do
+		local intersectionStart = crossRoad.center - crossRoad.width * 0.5
+		local intersectionEnd = crossRoad.center + crossRoad.width * 0.5
+		if intersectionStart > cursor then
+			table.insert(spans, {
+				startPos = cursor,
+				endPos = intersectionStart,
+			})
+		end
+		cursor = math.max(cursor, intersectionEnd)
+	end
+
+	if cursor < halfExtent then
+		table.insert(spans, {
+			startPos = cursor,
+			endPos = halfExtent,
+		})
+	end
+
+	return spans
+end
+
+local function createDashedCenterLine(
 	parent: Instance,
 	axis: "X" | "Z",
 	roadCenterA: number,
 	roadCenterB: number,
 	roadY: number,
-	halfExtent: number,
+	spanStart: number,
+	spanEnd: number,
 	config: {[string]: any}
 )
 	local length = config.LaneMarkLength
 	local gap = config.LaneMarkGap
 	local period = length + gap
-	local startPos = -halfExtent + length * 0.5
-	local endPos = halfExtent - length * 0.5
-	local cursor = startPos
+	local stopOffset = config.LaneMarkEndOffset or 4
+	local dashStart = spanStart + stopOffset
+	local dashEnd = spanEnd - stopOffset
+
+	if dashEnd - dashStart < length then
+		return
+	end
+
+	local cursor = dashStart + length * 0.5
 	local markIndex = 0
 
-	while cursor <= endPos do
+	while cursor <= dashEnd - length * 0.5 do
 		markIndex += 1
 		if axis == "X" then
 			createPart({
-				name = ("LaneMark_X_%d"):format(markIndex),
+				name = ("LaneMark_X_%d_%.0f"):format(markIndex, roadCenterB),
 				size = Vector3.new(length, config.LaneMarkHeight, config.LaneMarkWidth),
-				position = Vector3.new(roadCenterA + cursor, roadY + 0.53, roadCenterB),
+				position = Vector3.new(roadCenterA + cursor, roadY + config.RoadThickness * 0.5 + config.LaneMarkHeight * 0.5, roadCenterB),
 				material = Enum.Material.SmoothPlastic,
 				color = config.LaneMarkColor,
 				reflectance = 0.02,
@@ -159,9 +192,9 @@ local function createLaneMarks(
 			})
 		else
 			createPart({
-				name = ("LaneMark_Z_%d"):format(markIndex),
+				name = ("LaneMark_Z_%d_%.0f"):format(markIndex, roadCenterA),
 				size = Vector3.new(config.LaneMarkWidth, config.LaneMarkHeight, length),
-				position = Vector3.new(roadCenterA, roadY + 0.53, roadCenterB + cursor),
+				position = Vector3.new(roadCenterA, roadY + config.RoadThickness * 0.5 + config.LaneMarkHeight * 0.5, roadCenterB + cursor),
 				material = Enum.Material.SmoothPlastic,
 				color = config.LaneMarkColor,
 				reflectance = 0.02,
@@ -182,11 +215,13 @@ local function buildCityGrid()
 
 	local cityFolder = ensureFolder(Workspace, "City")
 	local roadsFolder = ensureFolder(cityFolder, "Roads")
+	local intersectionsFolder = ensureFolder(cityFolder, "Intersections")
 	local lotsFolder = ensureFolder(cityFolder, "Lots")
 	local markingsFolder = ensureFolder(cityFolder, "Markings")
 	local sidewalksFolder = ensureFolder(cityFolder, "Sidewalks")
 
 	clearFolder(roadsFolder)
+	clearFolder(intersectionsFolder)
 	clearFolder(lotsFolder)
 	clearFolder(markingsFolder)
 	clearFolder(sidewalksFolder)
@@ -206,78 +241,122 @@ local function buildCityGrid()
 		math.max(1, config.BlocksPerMainRoad)
 	)
 
-	local fullSpanX = halfX * 2
-	local fullSpanZ = halfZ * 2
+	local zSpans = collectStraightSpans(halfZ, zRoads)
+	local xSpans = collectStraightSpans(halfX, xRoads)
 
-	for i, road in ipairs(xRoads) do
-		local roadPart = createPart({
-			name = ("Road_NS_%d"):format(i),
-			size = Vector3.new(road.width, config.RoadThickness, fullSpanZ),
-			position = Vector3.new(center.X + road.center, roadY, center.Z),
-			material = roadMaterial,
-			color = config.RoadColor,
-			reflectance = 0.05,
-			parent = roadsFolder,
-		})
-
-		if config.LaneMarkingsEnabled then
-			createLaneMarks(markingsFolder, "Z", roadPart.Position.X, roadPart.Position.Z, roadY, halfZ, config)
-		end
-
-		if config.SidewalkEnabled then
-			local curbOffset = road.width * 0.5 + config.SidewalkWidth * 0.5
+	for xi, xRoad in ipairs(xRoads) do
+		for zi, zRoad in ipairs(zRoads) do
 			createPart({
-				name = ("Sidewalk_NS_%d_L"):format(i),
-				size = Vector3.new(config.SidewalkWidth, config.SidewalkHeight, fullSpanZ),
-				position = roadPart.Position + Vector3.new(-curbOffset, config.SidewalkHeight * 0.5 + 0.5, 0),
-				material = Enum.Material.Concrete,
-				color = config.SidewalkColor,
-				parent = sidewalksFolder,
-			})
-			createPart({
-				name = ("Sidewalk_NS_%d_R"):format(i),
-				size = Vector3.new(config.SidewalkWidth, config.SidewalkHeight, fullSpanZ),
-				position = roadPart.Position + Vector3.new(curbOffset, config.SidewalkHeight * 0.5 + 0.5, 0),
-				material = Enum.Material.Concrete,
-				color = config.SidewalkColor,
-				parent = sidewalksFolder,
+				name = ("Intersection_%d_%d"):format(xi, zi),
+				size = Vector3.new(xRoad.width, config.RoadThickness, zRoad.width),
+				position = Vector3.new(center.X + xRoad.center, roadY, center.Z + zRoad.center),
+				material = roadMaterial,
+				color = config.RoadColor,
+				reflectance = 0.05,
+				parent = intersectionsFolder,
 			})
 		end
 	end
 
-	for i, road in ipairs(zRoads) do
-		local roadPart = createPart({
-			name = ("Road_EW_%d"):format(i),
-			size = Vector3.new(fullSpanX, config.RoadThickness, road.width),
-			position = Vector3.new(center.X, roadY, center.Z + road.center),
-			material = roadMaterial,
-			color = config.RoadColor,
-			reflectance = 0.05,
-			parent = roadsFolder,
-		})
+	for i, road in ipairs(xRoads) do
+		for spanIndex, span in ipairs(zSpans) do
+			local segmentLength = span.endPos - span.startPos
+			if segmentLength > 1 then
+				local segmentCenterZ = (span.startPos + span.endPos) * 0.5
+				local roadPart = createPart({
+					name = ("Road_NS_%d_%d"):format(i, spanIndex),
+					size = Vector3.new(road.width, config.RoadThickness, segmentLength),
+					position = Vector3.new(center.X + road.center, roadY, center.Z + segmentCenterZ),
+					material = roadMaterial,
+					color = config.RoadColor,
+					reflectance = 0.05,
+					parent = roadsFolder,
+				})
 
-		if config.LaneMarkingsEnabled then
-			createLaneMarks(markingsFolder, "X", roadPart.Position.X, roadPart.Position.Z, roadY, halfX, config)
+				if config.LaneMarkingsEnabled then
+					createDashedCenterLine(
+						markingsFolder,
+						"Z",
+						roadPart.Position.X,
+						center.Z,
+						roadY,
+						span.startPos,
+						span.endPos,
+						config
+					)
+				end
+
+				if config.SidewalkEnabled then
+					local curbOffset = road.width * 0.5 + config.SidewalkWidth * 0.5
+					createPart({
+						name = ("Sidewalk_NS_%d_%d_L"):format(i, spanIndex),
+						size = Vector3.new(config.SidewalkWidth, config.SidewalkHeight, segmentLength),
+						position = roadPart.Position + Vector3.new(-curbOffset, config.SidewalkHeight * 0.5 + 0.5, 0),
+						material = Enum.Material.Concrete,
+						color = config.SidewalkColor,
+						parent = sidewalksFolder,
+					})
+					createPart({
+						name = ("Sidewalk_NS_%d_%d_R"):format(i, spanIndex),
+						size = Vector3.new(config.SidewalkWidth, config.SidewalkHeight, segmentLength),
+						position = roadPart.Position + Vector3.new(curbOffset, config.SidewalkHeight * 0.5 + 0.5, 0),
+						material = Enum.Material.Concrete,
+						color = config.SidewalkColor,
+						parent = sidewalksFolder,
+					})
+				end
+			end
 		end
+	end
 
-		if config.SidewalkEnabled then
-			local curbOffset = road.width * 0.5 + config.SidewalkWidth * 0.5
-			createPart({
-				name = ("Sidewalk_EW_%d_T"):format(i),
-				size = Vector3.new(fullSpanX, config.SidewalkHeight, config.SidewalkWidth),
-				position = roadPart.Position + Vector3.new(0, config.SidewalkHeight * 0.5 + 0.5, -curbOffset),
-				material = Enum.Material.Concrete,
-				color = config.SidewalkColor,
-				parent = sidewalksFolder,
-			})
-			createPart({
-				name = ("Sidewalk_EW_%d_B"):format(i),
-				size = Vector3.new(fullSpanX, config.SidewalkHeight, config.SidewalkWidth),
-				position = roadPart.Position + Vector3.new(0, config.SidewalkHeight * 0.5 + 0.5, curbOffset),
-				material = Enum.Material.Concrete,
-				color = config.SidewalkColor,
-				parent = sidewalksFolder,
-			})
+	for i, road in ipairs(zRoads) do
+		for spanIndex, span in ipairs(xSpans) do
+			local segmentLength = span.endPos - span.startPos
+			if segmentLength > 1 then
+				local segmentCenterX = (span.startPos + span.endPos) * 0.5
+				local roadPart = createPart({
+					name = ("Road_EW_%d_%d"):format(i, spanIndex),
+					size = Vector3.new(segmentLength, config.RoadThickness, road.width),
+					position = Vector3.new(center.X + segmentCenterX, roadY, center.Z + road.center),
+					material = roadMaterial,
+					color = config.RoadColor,
+					reflectance = 0.05,
+					parent = roadsFolder,
+				})
+
+				if config.LaneMarkingsEnabled then
+					createDashedCenterLine(
+						markingsFolder,
+						"X",
+						center.X,
+						roadPart.Position.Z,
+						roadY,
+						span.startPos,
+						span.endPos,
+						config
+					)
+				end
+
+				if config.SidewalkEnabled then
+					local curbOffset = road.width * 0.5 + config.SidewalkWidth * 0.5
+					createPart({
+						name = ("Sidewalk_EW_%d_%d_T"):format(i, spanIndex),
+						size = Vector3.new(segmentLength, config.SidewalkHeight, config.SidewalkWidth),
+						position = roadPart.Position + Vector3.new(0, config.SidewalkHeight * 0.5 + 0.5, -curbOffset),
+						material = Enum.Material.Concrete,
+						color = config.SidewalkColor,
+						parent = sidewalksFolder,
+					})
+					createPart({
+						name = ("Sidewalk_EW_%d_%d_B"):format(i, spanIndex),
+						size = Vector3.new(segmentLength, config.SidewalkHeight, config.SidewalkWidth),
+						position = roadPart.Position + Vector3.new(0, config.SidewalkHeight * 0.5 + 0.5, curbOffset),
+						material = Enum.Material.Concrete,
+						color = config.SidewalkColor,
+						parent = sidewalksFolder,
+					})
+				end
+			end
 		end
 	end
 
@@ -313,7 +392,10 @@ local function buildCityGrid()
 		end
 	end
 
-	print(("[CityLayout] World grid built. RoadsX=%d RoadsZ=%d Pads=%d"):format(#xRoads, #zRoads, #lotsFolder:GetChildren()))
+	print(
+		("[CityLayout] World grid built. RoadsX=%d RoadsZ=%d Intersections=%d Pads=%d")
+			:format(#xRoads, #zRoads, #intersectionsFolder:GetChildren(), #lotsFolder:GetChildren())
+	)
 end
 
 buildCityGrid()
