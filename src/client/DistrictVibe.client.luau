@@ -49,6 +49,8 @@ if not (atmosphere and atmosphere:IsA("Atmosphere")) then
 	atmosphere.Parent = Lighting
 end
 
+local sunRays = Lighting:FindFirstChildOfClass("SunRaysEffect")
+
 local function enforceDaySky()
 	for _, child in ipairs(Lighting:GetChildren()) do
 		if child:IsA("Sky") then
@@ -59,19 +61,19 @@ end
 
 local function applyBaseLighting()
 	Lighting.ClockTime = 13.5
-	Lighting.Brightness = 2.5
-	Lighting.ExposureCompensation = 0.3
+	Lighting.Brightness = 2.1
+	Lighting.ExposureCompensation = 0.08
 	Lighting.GlobalShadows = true
 	Lighting.Ambient = Color3.fromRGB(120, 120, 125)
 	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 155)
 
 	colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
-	colorCorrection.Saturation = -0.05
-	colorCorrection.Contrast = 0.05
-	colorCorrection.Brightness = 0.02
+	colorCorrection.Saturation = -0.03
+	colorCorrection.Contrast = 0.02
+	colorCorrection.Brightness = 0
 
-	bloom.Intensity = 0.12
-	bloom.Size = 14
+	bloom.Intensity = 0.02
+	bloom.Size = 10
 
 	atmosphere.Density = 0.18
 	atmosphere.Offset = 0
@@ -79,15 +81,39 @@ local function applyBaseLighting()
 	atmosphere.Decay = Color3.fromRGB(235, 215, 190)
 	atmosphere.Glare = 0.05
 	atmosphere.Haze = 0.45
+
+	-- Safety clamp: keep post FX subtle so highlights/avatars do not bloom or wash out.
+	bloom.Intensity = math.min(bloom.Intensity, 0.02)
+	bloom.Size = math.min(bloom.Size, 10)
+	colorCorrection.Contrast = math.clamp(colorCorrection.Contrast, -0.05, 0.05)
+	colorCorrection.Brightness = math.clamp(colorCorrection.Brightness, -0.02, 0.02)
+	if sunRays then
+		sunRays.Intensity = math.min(sunRays.Intensity, 0.04)
+	end
+	print("[DistrictVibe] Post FX clamp applied for highlight safety")
 end
 
-districtChangedRemote.OnClientEvent:Connect(function(newDistrict: string)
-	print(("[DistrictVibe] District changed -> %s"):format(newDistrict))
-	if newDistrict == Constants.Districts.DANGEROUS then
-		label.Text = "DANGEROUS DISTRICT"
+districtChangedRemote.OnClientEvent:Connect(function(payload: any)
+	local districtName = "SAFE DISTRICT"
+	local inDanger = false
+
+	if typeof(payload) == "table" then
+		districtName = tostring(payload.name or "Unknown District")
+		inDanger = payload.inDanger == true
+	elseif typeof(payload) == "string" then
+		if payload == Constants.Districts.DANGEROUS then
+			districtName = "DANGEROUS DISTRICT"
+			inDanger = true
+		else
+			districtName = "SAFE DISTRICT"
+		end
+	end
+
+	print(("[DistrictVibe] District changed -> %s"):format(districtName))
+	label.Text = districtName:upper()
+	if inDanger then
 		label.TextColor3 = Color3.fromRGB(255, 130, 130)
 	else
-		label.Text = "SAFE DISTRICT"
 		label.TextColor3 = Color3.fromRGB(230, 255, 235)
 	end
 	applyBaseLighting()
