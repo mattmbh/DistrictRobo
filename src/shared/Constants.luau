@@ -40,7 +40,7 @@ Constants.Heat = {
 
 Constants.Threat = {
 	MaxLevel = 4,
-	HeatThresholds = {70, 120, 135, 145},
+	HeatThresholds = {20, 60, 100, 150},
 }
 
 Constants.EMP = {
@@ -62,18 +62,18 @@ Constants.EMP = {
 }
 
 Constants.Drones = {
-	BaseCount = 2,
-	MaxAlive = 6,
+	BaseCount = 6,
+	MaxAlive = 15,
 	SpawnIntervalMin = 0.35,
 	SpawnIntervalMax = 0.75,
 	SpawnPerTickMin = 1,
 	SpawnPerTickMax = 2,
 	CountByThreatLevel = {
-		[0] = 2,
-		[1] = 3,
-		[2] = 5,
-		[3] = 5,
-		[4] = 6,
+		[0] = 6,
+		[1] = 7,
+		[2] = 10,
+		[3] = 12,
+		[4] = 15,
 	},
 	DespawnAfter = 20,
 	BaseSpeed = 10,

@@ -42,6 +42,7 @@ type DroneState = {
 	rootPart: BasePart,
 	hitbox: BasePart,
 	hitParts: {BasePart},
+	districtFolder: Folder?,
 	hp: number,
 	disabledUntil: number,
 	stunStartTime: number,
@@ -65,10 +66,12 @@ local movementAccumulator = 0
 local snapshotAccumulator = 0
 local nextDroneId = 1
 local lastDamageTimeByUserId: {[number]: number} = {}
+local lastAggroDebugStateByUserId: {[number]: string} = {}
 local forceAggroOnPlayer: (Player, Vector3) -> ()
 
 Players.PlayerRemoving:Connect(function(player: Player)
 	lastDamageTimeByUserId[player.UserId] = nil
+	lastAggroDebugStateByUserId[player.UserId] = nil
 end)
 
 local DRONE_MOVE_STEP = 0.2
@@ -85,14 +88,63 @@ end
 
 nextSpawnInterval = rollSpawnInterval()
 
+local function getDangerBoundsXZ(): (number, number, number, number, Vector3)
+	local fallbackCenter = zoneDanger.Position
+	local fallbackHalfSize = Vector2.new(zoneDanger.Size.X * 0.5, zoneDanger.Size.Z * 0.5)
+	local minX = fallbackCenter.X - fallbackHalfSize.X
+	local maxX = fallbackCenter.X + fallbackHalfSize.X
+	local minZ = fallbackCenter.Z - fallbackHalfSize.Y
+	local maxZ = fallbackCenter.Z + fallbackHalfSize.Y
+
+	local world = Workspace:FindFirstChild("World")
+	local districtsFolder = world and world:FindFirstChild("Districts")
+	if districtsFolder then
+		for _, child in ipairs(districtsFolder:GetChildren()) do
+			if child:IsA("Folder") then
+				local districtName = string.upper(tostring(child:GetAttribute("Name") or child.Name))
+				if districtName == "DANGER" then
+					local boundsMin = child:GetAttribute("BoundsMin")
+					local boundsMax = child:GetAttribute("BoundsMax")
+					if typeof(boundsMin) == "Vector3" and typeof(boundsMax) == "Vector3" then
+						minX = math.min(boundsMin.X, boundsMax.X)
+						maxX = math.max(boundsMin.X, boundsMax.X)
+						minZ = math.min(boundsMin.Z, boundsMax.Z)
+						maxZ = math.max(boundsMin.Z, boundsMax.Z)
+						break
+					end
+
+					local center = child:GetAttribute("Center")
+					local size = child:GetAttribute("Size")
+					if typeof(center) == "Vector3" and typeof(size) == "Vector2" then
+						minX = center.X - (size.X * 0.5)
+						maxX = center.X + (size.X * 0.5)
+						minZ = center.Z - (size.Y * 0.5)
+						maxZ = center.Z + (size.Y * 0.5)
+						break
+					end
+				end
+			end
+		end
+	end
+
+	local center = Vector3.new((minX + maxX) * 0.5, fallbackCenter.Y, (minZ + maxZ) * 0.5)
+	return minX, maxX, minZ, maxZ, center
+end
+
 local function clampToPlatformXZ(position: Vector3): Vector3
-	local center = zoneDanger.Position
-	local halfSize = Vector2.new(zoneDanger.Size.X * 0.5, zoneDanger.Size.Z * 0.5)
+	local minX, maxX, minZ, maxZ = getDangerBoundsXZ()
 	local margin = Constants.Drones.SpawnMargin
-	local minX = center.X - (halfSize.X - margin)
-	local maxX = center.X + (halfSize.X - margin)
-	local minZ = center.Z - (halfSize.Y - margin)
-	local maxZ = center.Z + (halfSize.Y - margin)
+	minX += margin
+	maxX -= margin
+	minZ += margin
+	maxZ -= margin
+	if minX > maxX then
+		minX, maxX = maxX, minX
+	end
+	if minZ > maxZ then
+		minZ, maxZ = maxZ, minZ
+	end
+
 	return Vector3.new(
 		math.clamp(position.X, minX, maxX),
 		position.Y,
@@ -101,35 +153,158 @@ local function clampToPlatformXZ(position: Vector3): Vector3
 end
 
 local function isOutsidePlatformXZ(position: Vector3): boolean
-	local center = zoneDanger.Position
-	local halfSize = Vector2.new(zoneDanger.Size.X * 0.5, zoneDanger.Size.Z * 0.5)
+	local minX, maxX, minZ, maxZ = getDangerBoundsXZ()
 	local margin = Constants.Drones.SpawnMargin
-	local minX = center.X - (halfSize.X - margin)
-	local maxX = center.X + (halfSize.X - margin)
-	local minZ = center.Z - (halfSize.Y - margin)
-	local maxZ = center.Z + (halfSize.Y - margin)
+	minX += margin
+	maxX -= margin
+	minZ += margin
+	maxZ -= margin
 	return position.X < minX or position.X > maxX or position.Z < minZ or position.Z > maxZ
 end
 
-local function randomPointInZone(zone: BasePart): Vector3
-	local half = zone.Size * 0.5
-	local edgeBias = (math.random() < 0.5) and (0.72 + (math.random() * 0.25)) or (math.random() * 0.7)
-	local edgeSignX = math.random(0, 1) == 0 and -1 or 1
-	local edgeSignZ = math.random(0, 1) == 0 and -1 or 1
-	local localPoint = Vector3.new(
-		edgeSignX * edgeBias * (half.X - 6),
+local function randomPointInDangerDistrict(): Vector3
+	local minX, maxX, minZ, maxZ = getDangerBoundsXZ()
+	local margin = math.max(2, Constants.Drones.SpawnMargin)
+	minX += margin
+	maxX -= margin
+	minZ += margin
+	maxZ -= margin
+	if minX > maxX then
+		minX, maxX = maxX, minX
+	end
+	if minZ > maxZ then
+		minZ, maxZ = maxZ, minZ
+	end
+
+	local worldPoint = Vector3.new(
+		lerp(minX, maxX, math.random()),
 		Constants.Drones.PlatformCenter.Y + Constants.Drones.HoverHeight,
-		edgeSignZ * edgeBias * (half.Z - 6)
+		lerp(minZ, maxZ, math.random())
 	)
-	local worldPoint = zone.CFrame:PointToWorldSpace(localPoint)
 	local clamped = clampToPlatformXZ(worldPoint)
 	return Vector3.new(clamped.X, Constants.Drones.PlatformCenter.Y + Constants.Drones.HoverHeight, clamped.Z)
+end
+
+local function getDistrictsFolder(): Folder?
+	local world = Workspace:FindFirstChild("World")
+	if not (world and world:IsA("Folder")) then
+		return nil
+	end
+	local districts = world:FindFirstChild("Districts")
+	if districts and districts:IsA("Folder") then
+		return districts
+	end
+	return nil
+end
+
+local function getDistrictForPosition(position: Vector3): Folder?
+	local districtsFolder = getDistrictsFolder()
+	if not districtsFolder then
+		return nil
+	end
+
+	for _, child in ipairs(districtsFolder:GetChildren()) do
+		if child:IsA("Folder") then
+			local boundsMin = child:GetAttribute("BoundsMin")
+			local boundsMax = child:GetAttribute("BoundsMax")
+			if typeof(boundsMin) == "Vector3" and typeof(boundsMax) == "Vector3" then
+				if position.X >= boundsMin.X and position.X <= boundsMax.X and position.Z >= boundsMin.Z and position.Z <= boundsMax.Z then
+					return child
+				end
+			end
+
+			local center = child:GetAttribute("Center")
+			local size = child:GetAttribute("Size")
+			if typeof(center) == "Vector3" and typeof(size) == "Vector2" then
+				local halfX = size.X * 0.5
+				local halfZ = size.Y * 0.5
+				if position.X >= center.X - halfX and position.X <= center.X + halfX and position.Z >= center.Z - halfZ and position.Z <= center.Z + halfZ then
+					return child
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
+local function recomputeDistrictDroneState()
+	local districtsFolder = getDistrictsFolder()
+	if not districtsFolder then
+		return
+	end
+
+	local counts: {[Folder]: number} = {}
+	for _, child in ipairs(districtsFolder:GetChildren()) do
+		if child:IsA("Folder") then
+			counts[child] = 0
+		end
+	end
+
+	for _, droneState in ipairs(drones) do
+		if droneState.instance.Parent and not droneState.isEliminated then
+			local district = droneState.districtFolder
+			if not (district and district.Parent == districtsFolder) then
+				district = getDistrictForPosition(droneState.rootPart.Position)
+				droneState.districtFolder = district
+			end
+			if district and counts[district] ~= nil then
+				counts[district] += 1
+			end
+		end
+	end
+
+	for district, count in pairs(counts) do
+		local hasDrones = count > 0
+		district:SetAttribute("DistrictDroneCount", count)
+		district:SetAttribute("HasDrones", hasDrones)
+		district:SetAttribute("DangerLevel", count)
+
+		local heatLevel = tonumber(district:GetAttribute("HeatLevel")) or 1
+		local districtName = tostring(district:GetAttribute("Name") or district.Name)
+		if hasDrones and heatLevel < 3 then
+			district:SetAttribute("HeatLevel", 3)
+		elseif not hasDrones then
+			if districtName == "SAFE" then
+				district:SetAttribute("HeatLevel", 0)
+			elseif districtName == "DANGER" then
+				district:SetAttribute("HeatLevel", 3)
+			elseif heatLevel > 2 then
+				district:SetAttribute("HeatLevel", 1)
+			end
+		end
+	end
 end
 
 local function getDangerPlayers(): {Player}
 	local result = {}
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player:GetAttribute("InDangerZone") then
+		local character = player.Character
+		local inDanger = false
+		local heat = 0
+		if character then
+			if character:GetAttribute("InDanger") ~= nil then
+				inDanger = character:GetAttribute("InDanger") == true
+			else
+				inDanger = player:GetAttribute("InDanger") == true
+			end
+			if character:GetAttribute("DistrictHeatLevel") ~= nil then
+				heat = tonumber(character:GetAttribute("DistrictHeatLevel")) or 0
+			else
+				heat = tonumber(player:GetAttribute("DistrictHeatLevel")) or 0
+			end
+		else
+			inDanger = player:GetAttribute("InDanger") == true
+			heat = tonumber(player:GetAttribute("DistrictHeatLevel")) or 0
+		end
+
+		local eligible = inDanger or heat >= 1
+		local stateKey = ("%s|%d"):format(tostring(inDanger), heat)
+		if lastAggroDebugStateByUserId[player.UserId] ~= stateKey then
+			lastAggroDebugStateByUserId[player.UserId] = stateKey
+			print(("[Drone] target player inDanger=%s heat=%d"):format(tostring(inDanger), heat))
+		end
+		if eligible then
 			table.insert(result, player)
 		end
 	end
@@ -255,7 +430,7 @@ local function setDroneActiveVisual(droneState: DroneState)
 end
 
 local function spawnDrone(spawnPositionOverride: Vector3?)
-	local spawnPosition = spawnPositionOverride or randomPointInZone(zoneDanger)
+	local spawnPosition = spawnPositionOverride or randomPointInDangerDistrict()
 	local droneTemplate = getDroneTemplate()
 
 	local droneInstance: BasePart | Model
@@ -307,6 +482,7 @@ local function spawnDrone(spawnPositionOverride: Vector3?)
 		rootPart = rootPart,
 		hitbox = hitbox,
 		hitParts = hitParts,
+		districtFolder = nil,
 		hp = Constants.Drones.DroneHP,
 		disabledUntil = 0,
 		stunStartTime = 0,
@@ -325,6 +501,13 @@ local function spawnDrone(spawnPositionOverride: Vector3?)
 	for _, part in ipairs(hitParts) do
 		dronesByPart[part] = droneState
 	end
+
+	droneState.districtFolder = getDistrictForPosition(spawnPosition)
+	recomputeDistrictDroneState()
+	local districtName = droneState.districtFolder and tostring(droneState.districtFolder:GetAttribute("Name") or droneState.districtFolder.Name) or "Unknown"
+	local sideName = (string.find(districtName, "DANGER", 1, true) and "DANGER") or "SAFE"
+	print(("[Drone] spawned in district %s"):format(districtName))
+	print(("[Drone] spawnX=%.2f -> %s"):format(spawnPosition.X, sideName))
 end
 
 local function cleanupDroneState()
@@ -342,6 +525,7 @@ local function cleanupDroneState()
 	end
 	drones = kept
 	dronesByPart = remap
+	recomputeDistrictDroneState()
 end
 
 local function removeDroneState(target: DroneState)
@@ -359,6 +543,7 @@ local function removeDroneState(target: DroneState)
 	end
 	drones = kept
 	dronesByPart = remap
+	recomputeDistrictDroneState()
 end
 
 local function getDesiredDroneCount(): number
@@ -521,7 +706,7 @@ local function eliminateDrone(droneState: DroneState, reason: string)
 	task.delay(replacementDelay, function()
 		cleanupDroneState()
 		if countAliveDrones() < getDesiredDroneCount() then
-			spawnDrone(randomPointInZone(zoneDanger))
+			spawnDrone(randomPointInDangerDistrict())
 		end
 	end)
 end
@@ -598,6 +783,39 @@ local function getDroneInRadius(position: Vector3, radius: number): {DroneState}
 		end
 	end
 	return hitDrones
+end
+
+local function pointSegmentDistanceSquared(point: Vector3, segA: Vector3, segB: Vector3): number
+	local seg = segB - segA
+	local segLenSq = seg:Dot(seg)
+	if segLenSq <= 1e-6 then
+		return (point - segA):Dot(point - segA)
+	end
+	local t = math.clamp((point - segA):Dot(seg) / segLenSq, 0, 1)
+	local closest = segA + (seg * t)
+	local delta = point - closest
+	return delta:Dot(delta)
+end
+
+local function getDroneInSweep(startPos: Vector3, endPos: Vector3, radius: number): {DroneState}
+	local hits = getDroneInRadius(endPos, radius)
+	local seen: {[number]: boolean} = {}
+	for _, droneState in ipairs(hits) do
+		seen[droneState.id] = true
+	end
+
+	local expandedRadius = radius + 2
+	local radiusSq = expandedRadius * expandedRadius
+	for _, droneState in ipairs(drones) do
+		if not seen[droneState.id] and droneState.instance.Parent and not droneState.isEliminated then
+			local distSq = pointSegmentDistanceSquared(droneState.rootPart.Position, startPos, endPos)
+			if distSq <= radiusSq then
+				seen[droneState.id] = true
+				table.insert(hits, droneState)
+			end
+		end
+	end
+	return hits
 end
 
 local function getDamageCooldownPerPlayer(): number
@@ -834,7 +1052,7 @@ local function launchEMPProjectile(player: Player, origin: Vector3, direction: V
 		projectile.Position = nextPos
 		traveled += step.Magnitude
 
-		local hitDrones = getDroneInRadius(nextPos, hitRadius)
+		local hitDrones = getDroneInSweep(currentPos, nextPos, hitRadius)
 		if #hitDrones > 0 then
 			print("Drone hit")
 			for _, droneState in ipairs(hitDrones) do
@@ -842,7 +1060,7 @@ local function launchEMPProjectile(player: Player, origin: Vector3, direction: V
 			end
 
 			if impactRadius > 0 then
-				for _, droneState in ipairs(getDroneInRadius(nextPos, impactRadius)) do
+				for _, droneState in ipairs(getDroneInSweep(nextPos, nextPos, impactRadius)) do
 					disableDrone(
 						droneState,
 						player,
@@ -887,7 +1105,7 @@ local function setDroneWorldPosition(droneState: DroneState, desiredPosition: Ve
 	local finalPosition = Vector3.new(clamped.X, getHoverY(droneState), clamped.Z)
 	local forward = lookDir and lookDir.Magnitude > 0.001 and lookDir.Unit or getDroneScanForward(droneState)
 	if wasOutside then
-		local center = zoneDanger.Position
+		local _, _, _, _, center = getDangerBoundsXZ()
 		local inward = Vector3.new(center.X - finalPosition.X, 0, center.Z - finalPosition.Z)
 		if inward.Magnitude > 0.001 then
 			forward = (forward + inward.Unit).Unit
@@ -958,7 +1176,7 @@ end
 
 local function getPreferredMoveDirection(droneState: DroneState, targetPosition: Vector3): Vector3
 	if isOutsidePlatformXZ(droneState.rootPart.Position) then
-		local center = zoneDanger.Position
+		local _, _, _, _, center = getDangerBoundsXZ()
 		local inward = Vector3.new(
 			center.X - droneState.rootPart.Position.X,
 			0,

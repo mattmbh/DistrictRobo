@@ -1,15 +1,8 @@
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
-
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Constants = require(Shared:WaitForChild("Constants"))
-local Net = require(Shared:WaitForChild("Net"))
-
-local districtChangedRemote = Net.GetRemoteEvent(Constants.Remotes.DistrictChanged)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "DistrictVibeGui"
@@ -93,34 +86,40 @@ local function applyBaseLighting()
 	print("[DistrictVibe] Post FX clamp applied for highlight safety")
 end
 
-districtChangedRemote.OnClientEvent:Connect(function(payload: any)
-	local districtName = "SAFE DISTRICT"
-	local inDanger = false
-
-	if typeof(payload) == "table" then
-		districtName = tostring(payload.name or "Unknown District")
-		inDanger = payload.inDanger == true
-	elseif typeof(payload) == "string" then
-		if payload == Constants.Districts.DANGEROUS then
-			districtName = "DANGEROUS DISTRICT"
-			inDanger = true
-		else
-			districtName = "SAFE DISTRICT"
-		end
-	end
-
-	print(("[DistrictVibe] District changed -> %s"):format(districtName))
-	label.Text = districtName:upper()
+local function applyDangerLighting(inDanger: boolean)
 	if inDanger then
-		label.TextColor3 = Color3.fromRGB(255, 130, 130)
+		colorCorrection.TintColor = Color3.fromRGB(255, 232, 232)
+		colorCorrection.Saturation = -0.06
+		colorCorrection.Contrast = 0.05
+		colorCorrection.Brightness = -0.005
+		atmosphere.Color = Color3.fromRGB(205, 190, 190)
+		atmosphere.Decay = Color3.fromRGB(220, 188, 188)
 	else
-		label.TextColor3 = Color3.fromRGB(230, 255, 235)
+		colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+		colorCorrection.Saturation = -0.03
+		colorCorrection.Contrast = 0.02
+		colorCorrection.Brightness = 0
+		atmosphere.Color = Color3.fromRGB(210, 205, 195)
+		atmosphere.Decay = Color3.fromRGB(235, 215, 190)
 	end
-	applyBaseLighting()
-end)
+
+	bloom.Intensity = math.min(bloom.Intensity, 0.02)
+	bloom.Size = math.min(bloom.Size, 10)
+end
+
+local function refreshDistrictVibe()
+	local districtName = tostring(player:GetAttribute("DistrictId") or "SAFE DISTRICT")
+	local inDanger = player:GetAttribute("InDangerDistrict") == true
+	label.Text = districtName:upper()
+	label.TextColor3 = inDanger and Color3.fromRGB(236, 156, 156) or Color3.fromRGB(230, 255, 235)
+	applyDangerLighting(inDanger)
+end
 
 label.Text = "SAFE DISTRICT"
 label.TextColor3 = Color3.fromRGB(230, 255, 235)
 enforceDaySky()
 applyBaseLighting()
+refreshDistrictVibe()
+player:GetAttributeChangedSignal("DistrictId"):Connect(refreshDistrictVibe)
+player:GetAttributeChangedSignal("InDangerDistrict"):Connect(refreshDistrictVibe)
 print("[DistrictVibe] Ready")
