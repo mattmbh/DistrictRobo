@@ -12,6 +12,7 @@ Constants.Remotes = {
 	Toast = "Toast",
 	FXEvent = "FXEvent",
 	DroneSnapshot = "DroneSnapshot",
+	ArenaPlaceBet = "ArenaPlaceBet",
 }
 
 Constants.Bindables = {
@@ -173,6 +174,35 @@ Constants.CityLayout = {
 	PlaceholderBuildingChance = 0.35,
 	PlaceholderBuildingHeight = 12,
 	PlaceholderBuildingFootprintScale = 0.28,
+}
+
+Constants.Arena = {
+	SafeSideBuffer = 36,
+	LotInset = 14,
+	FloorHeight = 1,
+	WallHeight = 18,
+	PitRadius = 18,
+	PitDepth = 3,
+	SpawnOffset = 16,
+	FightRange = 5.5,
+	PreferredCombatDistance = 5.1,
+	MinimumCombatDistance = 3.35,
+	FighterMoveSpeed = 12,
+	AttackWindup = 0.28,
+	AttackRecovery = 0.22,
+	HitRecoilDistance = 1.6,
+	StateBroadcastRate = 0.12,
+	FighterTimeout = 45,
+	SpectateDistance = 170,
+	NameplateMaxDistance = 75,
+	PhaseDurations = {
+		Intermission = 20,
+		BetWindow = 18,
+		FightActive = 45,
+		Result = 10,
+	},
+	DefaultBetAmount = 25,
+	MinimumBetAmount = 5,
 }
 
 Constants.Audio = {
