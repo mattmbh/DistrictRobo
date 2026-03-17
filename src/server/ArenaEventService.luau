@@ -79,6 +79,43 @@ local function updateState(updates: {[string]: any})
 	end
 end
 
+local function setPresentation(headline: string, detail: string, cue: string, countdown: number?)
+	updateState({
+		DisplayHeadline = headline,
+		DisplayDetail = detail,
+		EventCue = cue,
+		CountdownNumber = countdown or 0,
+	})
+end
+
+local function pulseArenaLights(color: Color3, brightness: number, duration: number)
+	local buildData = ArenaBuildService.GetArenaData()
+	local lights = {}
+	for _, descendant in ipairs(buildData.arenaModel:GetDescendants()) do
+		if descendant:IsA("PointLight") then
+			table.insert(lights, {
+				light = descendant,
+				color = descendant.Color,
+				brightness = descendant.Brightness,
+			})
+		end
+	end
+
+	for _, entry in ipairs(lights) do
+		entry.light.Color = color
+		entry.light.Brightness = brightness
+	end
+
+	task.delay(duration, function()
+		for _, entry in ipairs(lights) do
+			if entry.light.Parent then
+				entry.light.Color = entry.color
+				entry.light.Brightness = entry.brightness
+			end
+		end
+	end)
+end
+
 local function createNameplate(head: BasePart, definition: {[string]: any}): Frame
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ArenaNameplate"
@@ -431,17 +468,21 @@ local function setPhase(phase: string, duration: number)
 	print(("[ArenaEvent] Phase=%s duration=%ds round=%d"):format(phase, duration, currentRoundId))
 end
 
-local function tickPhase(duration: number)
+local function tickPhase(duration: number, countdownCue: boolean?)
 	local remaining = duration
 	while remaining > 0 do
 		updateState({
 			TimeRemaining = remaining,
 		})
+		if countdownCue and remaining <= 3 then
+			setPresentation(tostring(remaining), "FIGHT STARTING", "Countdown", remaining)
+		end
 		task.wait(1)
 		remaining -= 1
 	end
 	updateState({
 		TimeRemaining = 0,
+		CountdownNumber = 0,
 	})
 end
 
@@ -453,6 +494,7 @@ function ArenaEventService.Initialize()
 
 	updateState({
 		ArenaReady = true,
+		EventType = "ArenaDuel",
 		ArenaLotId = ("%d_%d"):format(buildData.lot.xi, buildData.lot.zi),
 		ArenaDistrict = "SAFE",
 		ArenaPosition = buildData.lot.center,
@@ -462,6 +504,10 @@ function ArenaEventService.Initialize()
 		IsArenaActive = true,
 		Phase = "Boot",
 		TimeRemaining = 0,
+		DisplayHeadline = "ROBO DISTRICT ARENA",
+		DisplayDetail = "Loading event feed...",
+		EventCue = "Idle",
+		CountdownNumber = 0,
 	})
 end
 
@@ -492,11 +538,27 @@ function ArenaEventService.Run()
 		})
 
 		setPhase("Intermission", phaseDurations.Intermission)
+		setPresentation("NEXT MAIN EVENT", "Crowd reset and prep in progress.", "Intermission", 0)
 		tickPhase(phaseDurations.Intermission)
+
+		setPhase("Introductions", phaseDurations.Introductions)
+		setPresentation(
+			("A: %s  VS  B: %s"):format(definitionA.Name, definitionB.Name),
+			("%s vs %s"):format(definitionA.Style, definitionB.Style),
+			"Introductions",
+			0
+		)
+		tickPhase(phaseDurations.Introductions)
 
 		ArenaBetService.Open(currentRoundId, definitionA.Name, definitionB.Name)
 		setPhase("BetWindow", phaseDurations.BetWindow)
-		tickPhase(phaseDurations.BetWindow)
+		setPresentation(
+			("PLACE YOUR BETS"),
+			("%s [%s]  VS  %s [%s]"):format(definitionA.Name, definitionA.Style, definitionB.Name, definitionB.Style),
+			"BetWindow",
+			0
+		)
+		tickPhase(phaseDurations.BetWindow, true)
 		ArenaBetService.Close()
 
 		local fighterA = spawnFighter("A", definitionA, buildData.spawnA)
@@ -506,6 +568,8 @@ function ArenaEventService.Run()
 		updateHealthVisual(fighterB)
 
 		setPhase("FightActive", phaseDurations.FightActive)
+		setPresentation("FIGHT!", ("%s  VS  %s"):format(definitionA.Name, definitionB.Name), "FightStart", 0)
+		pulseArenaLights(Color3.fromRGB(255, 204, 122), 2.8, 0.45)
 		local winningSlot = runFight()
 		local winnerName = ""
 		if winningSlot == "A" then
@@ -523,6 +587,8 @@ function ArenaEventService.Run()
 
 		print(("[ArenaEvent] Round %d result=%s"):format(currentRoundId, winnerName))
 		setPhase("Result", phaseDurations.Result)
+		setPresentation("WINNER!", winnerName:upper(), "Winner", 0)
+		pulseArenaLights(Color3.fromRGB(123, 220, 126), 2.4, 0.7)
 		tickPhase(phaseDurations.Result)
 
 		destroyCurrentFighters()

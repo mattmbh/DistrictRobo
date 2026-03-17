@@ -22,7 +22,7 @@ Constants.Bindables = {
 }
 
 Constants.GameSettings = {
-	StartingCoins = 0,
+	StartingCoins = 50,
 	StartingMaterials = 0,
 	SellPricePerMaterial = 12,
 }
@@ -197,6 +197,7 @@ Constants.Arena = {
 	NameplateMaxDistance = 75,
 	PhaseDurations = {
 		Intermission = 20,
+		Introductions = 6,
 		BetWindow = 18,
 		FightActive = 45,
 		Result = 10,

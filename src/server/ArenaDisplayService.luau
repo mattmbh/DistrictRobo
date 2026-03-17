@@ -107,15 +107,28 @@ function ArenaDisplayService.Attach(arenaModel: Model)
 		local fighterAName = tostring(stateFolder:GetAttribute("FighterAName") or "Fighter A")
 		local fighterBName = tostring(stateFolder:GetAttribute("FighterBName") or "Fighter B")
 		local winnerName = tostring(stateFolder:GetAttribute("WinnerName") or "")
+		local headline = tostring(stateFolder:GetAttribute("DisplayHeadline") or "")
+		local detail = tostring(stateFolder:GetAttribute("DisplayDetail") or "")
+		local cue = tostring(stateFolder:GetAttribute("EventCue") or "")
+		local countdownNumber = tonumber(stateFolder:GetAttribute("CountdownNumber") or 0) or 0
 
-		local status = ("%s  |  %ds"):format(phase:upper(), math.max(0, math.floor(timeRemaining)))
-		local detail = ""
-		if phase == "BetWindow" or phase == "FightActive" then
-			detail = ("%s VS %s"):format(fighterAName, fighterBName)
-		elseif phase == "Result" and winnerName ~= "" then
-			detail = ("WINNER: %s"):format(winnerName)
-		else
-			detail = "Next duel loading. Place your bets when the window opens."
+		local status = headline
+		local detailText = detail
+		if countdownNumber > 0 then
+			status = tostring(countdownNumber)
+			detailText = "FIGHT STARTING"
+		elseif cue == "Winner" and winnerName ~= "" then
+			status = "WINNER!"
+			detailText = winnerName
+		elseif status == "" then
+			status = ("%s  |  %ds"):format(phase:upper(), math.max(0, math.floor(timeRemaining)))
+			if phase == "BetWindow" or phase == "FightActive" then
+				detailText = ("%s VS %s"):format(fighterAName, fighterBName)
+			elseif phase == "Result" and winnerName ~= "" then
+				detailText = ("WINNER: %s"):format(winnerName)
+			else
+				detailText = "Next duel loading. Place your bets when the window opens."
+			end
 		end
 
 		for _, frame in ipairs({marqueeFrame, jumbotronFrame}) do
@@ -124,12 +137,19 @@ function ArenaDisplayService.Attach(arenaModel: Model)
 			local detailLabel = frame:FindFirstChild("Detail") :: TextLabel
 			title.Text = if frame == jumbotronFrame then "LIVE ARENA FEED" else "ROBO DISTRICT ARENA"
 			statusLabel.Text = status
-			detailLabel.Text = detail
+			detailLabel.Text = detailText
+			statusLabel.TextColor3 = if countdownNumber > 0
+				then Color3.fromRGB(255, 214, 120)
+				elseif cue == "FightStart"
+				then Color3.fromRGB(255, 112, 96)
+				elseif cue == "Winner"
+				then Color3.fromRGB(129, 227, 137)
+				else Color3.fromRGB(226, 232, 242)
 		end
 	end
 
 	refresh()
-	for _, attr in ipairs({"Phase", "TimeRemaining", "FighterAName", "FighterBName", "WinnerName"}) do
+	for _, attr in ipairs({"Phase", "TimeRemaining", "FighterAName", "FighterBName", "WinnerName", "DisplayHeadline", "DisplayDetail", "EventCue", "CountdownNumber"}) do
 		table.insert(displayConnections, stateFolder:GetAttributeChangedSignal(attr):Connect(refresh))
 	end
 end

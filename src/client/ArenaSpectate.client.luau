@@ -30,6 +30,9 @@ button.Parent = gui
 
 local watching = false
 local renderConnection: RBXScriptConnection? = nil
+playerGui:SetAttribute("ArenaSpectating", false)
+
+local refresh: () -> ()
 
 local function isNearArena(): boolean
 	local character = player.Character
@@ -44,6 +47,8 @@ end
 
 local function stopSpectating()
 	watching = false
+	playerGui:SetAttribute("ArenaSpectating", false)
+	playerGui:SetAttribute("ArenaSpectateRequested", "")
 	button.Text = "Watch Fight"
 	if renderConnection then
 		renderConnection:Disconnect()
@@ -54,6 +59,8 @@ end
 
 local function startSpectating()
 	watching = true
+	playerGui:SetAttribute("ArenaSpectating", true)
+	playerGui:SetAttribute("ArenaSpectateRequested", "")
 	button.Text = "Return To Player"
 	camera.CameraType = Enum.CameraType.Scriptable
 
@@ -63,9 +70,9 @@ local function startSpectating()
 
 	renderConnection = RunService.RenderStepped:Connect(function()
 		local anchorPosition = arenaState:GetAttribute("CameraAnchorPosition")
-		local focusPosition = arenaState:GetAttribute("FightCenter")
+		local focusPosition = arenaState:GetAttribute("FocusPosition")
 		if typeof(focusPosition) ~= "Vector3" then
-			focusPosition = arenaState:GetAttribute("FocusPosition")
+			focusPosition = arenaState:GetAttribute("ArenaPosition")
 		end
 		if typeof(anchorPosition) ~= "Vector3" or typeof(focusPosition) ~= "Vector3" then
 			return
@@ -74,7 +81,19 @@ local function startSpectating()
 	end)
 end
 
-local function refresh()
+local function handleSpectateRequest()
+	local request = tostring(playerGui:GetAttribute("ArenaSpectateRequested") or "")
+	if request == "Start" then
+		startSpectating()
+	elseif request == "Stop" then
+		stopSpectating()
+	else
+		return
+	end
+	refresh()
+end
+
+refresh = function()
 	local phase = tostring(arenaState:GetAttribute("Phase") or "")
 	local active = arenaState:GetAttribute("IsArenaActive") == true
 	local canWatch = active and phase == "FightActive" and isNearArena()
@@ -100,6 +119,8 @@ player.CharacterAdded:Connect(function()
 	task.defer(refresh)
 	stopSpectating()
 end)
+
+playerGui:GetAttributeChangedSignal("ArenaSpectateRequested"):Connect(handleSpectateRequest)
 
 for _, attr in ipairs({"Phase", "IsArenaActive", "ArenaPosition", "CameraAnchorPosition", "FightCenter"}) do
 	arenaState:GetAttributeChangedSignal(attr):Connect(refresh)
