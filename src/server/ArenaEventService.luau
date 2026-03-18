@@ -12,9 +12,21 @@ local ArenaDisplayService = require(script.Parent:WaitForChild("ArenaDisplayServ
 
 local ArenaEventService = {}
 
+type CombatProfile = {
+	MaxHealth: number,
+	AttackDamage: number,
+	AttackCooldown: number,
+	MoveSpeed: number,
+	AttackWindup: number,
+	PreferredCombatDistanceOffset: number,
+	MinimumCombatDistanceOffset: number,
+	OpeningDelay: number,
+}
+
 type FighterState = {
 	slot: string,
 	definition: {[string]: any},
+	combatProfile: CombatProfile,
 	model: Model,
 	humanoid: Humanoid,
 	rootPart: BasePart,
@@ -116,7 +128,22 @@ local function pulseArenaLights(color: Color3, brightness: number, duration: num
 	end)
 end
 
+local function setPublicChoiceState(prefix: string, definition: {[string]: any})
+	local publicProfile = ArenaFighterDefs.GetPublicProfile(definition)
+	updateState({
+		[prefix .. "Name"] = publicProfile.Name,
+		[prefix .. "Style"] = publicProfile.Style,
+		[prefix .. "Power"] = publicProfile.Power,
+		[prefix .. "Speed"] = publicProfile.Speed,
+		[prefix .. "Toughness"] = publicProfile.Toughness,
+		[prefix .. "Wins"] = publicProfile.Wins,
+		[prefix .. "Losses"] = publicProfile.Losses,
+		[prefix .. "Record"] = publicProfile.Record,
+	})
+end
+
 local function createNameplate(head: BasePart, definition: {[string]: any}): Frame
+	local publicProfile = ArenaFighterDefs.GetPublicProfile(definition)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ArenaNameplate"
 	billboard.Size = UDim2.fromOffset(180, 58)
@@ -156,7 +183,7 @@ local function createNameplate(head: BasePart, definition: {[string]: any}): Fra
 	styleLabel.Font = Enum.Font.GothamSemibold
 	styleLabel.TextSize = 11
 	styleLabel.TextColor3 = Color3.fromRGB(179, 192, 206)
-	styleLabel.Text = definition.Style
+	styleLabel.Text = ("%s  |  REC %s"):format(publicProfile.Style, publicProfile.Record)
 	styleLabel.Parent = frame
 
 	local barBack = Instance.new("Frame")
@@ -210,7 +237,7 @@ local function weldParts(a: BasePart, b: BasePart)
 	weld.Parent = a
 end
 
-local function spawnFighter(slot: string, definition: {[string]: any}, spawnPart: BasePart): FighterState
+local function spawnFighter(slot: string, definition: {[string]: any}, combatProfile: CombatProfile, spawnPart: BasePart): FighterState
 	local model = Instance.new("Model")
 	model.Name = ("%s_%s"):format(slot, definition.Name)
 	model.Parent = getRuntimeFolder()
@@ -233,8 +260,8 @@ local function spawnFighter(slot: string, definition: {[string]: any}, spawnPart
 	local humanoid = Instance.new("Humanoid")
 	humanoid.NameDisplayDistance = 48
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
-	humanoid.MaxHealth = definition.Health
-	humanoid.Health = definition.Health
+	humanoid.MaxHealth = combatProfile.MaxHealth
+	humanoid.Health = combatProfile.MaxHealth
 	humanoid.WalkSpeed = 0
 	humanoid.AutoRotate = false
 	humanoid.Parent = model
@@ -243,25 +270,26 @@ local function spawnFighter(slot: string, definition: {[string]: any}, spawnPart
 	model:PivotTo(spawnPart.CFrame + Vector3.new(0, 3.5, 0))
 	model:SetAttribute("ArenaSlot", slot)
 	model:SetAttribute("FighterName", definition.Name)
-	model:SetAttribute("AttackDamage", definition.AttackDamage)
-	model:SetAttribute("AttackCooldown", definition.AttackCooldown)
+	model:SetAttribute("AttackDamage", combatProfile.AttackDamage)
+	model:SetAttribute("AttackCooldown", combatProfile.AttackCooldown)
 	model:SetAttribute("Style", definition.Style)
 	model:SetAttribute("Aggression", definition.Aggression)
 
 	local healthFill = createNameplate(head, definition)
 
-	print(("[ArenaFight] Spawned %s as %s hp=%d dmg=%d cd=%.2f style=%s"):format(
+	print(("[ArenaFight] Spawned %s as %s hp=%.1f dmg=%.1f cd=%.2f style=%s"):format(
 		definition.Name,
 		slot,
-		definition.Health,
-		definition.AttackDamage,
-		definition.AttackCooldown,
+		combatProfile.MaxHealth,
+		combatProfile.AttackDamage,
+		combatProfile.AttackCooldown,
 		definition.Style
 	))
 
 	return {
 		slot = slot,
 		definition = definition,
+		combatProfile = combatProfile,
 		model = model,
 		humanoid = humanoid,
 		rootPart = rootPart,
@@ -301,6 +329,34 @@ end
 local function rotateToward(fighter: FighterState, lookTarget: Vector3)
 	local origin = fighter.rootPart.Position
 	fighter.model:PivotTo(CFrame.lookAt(origin, Vector3.new(lookTarget.X, origin.Y, lookTarget.Z)))
+end
+
+local function stageFighters()
+	local fighterA = currentFighters[1]
+	local fighterB = currentFighters[2]
+	if not fighterA or not fighterB then
+		return
+	end
+	rotateToward(fighterA, fighterB.rootPart.Position)
+	rotateToward(fighterB, fighterA.rootPart.Position)
+	local fightCenter = getFightCenter()
+	if fightCenter then
+		updateState({
+			FightCenter = fightCenter,
+			FighterAHealthCurrent = fighterA.humanoid.Health,
+			FighterBHealthCurrent = fighterB.humanoid.Health,
+		})
+	end
+end
+
+local function armFightersForRound()
+	local now = os.clock()
+	for _, fighter in ipairs(currentFighters) do
+		fighter.windupEndsAt = 0
+		fighter.strikeAt = 0
+		fighter.recoveryEndsAt = 0
+		fighter.nextAttackAt = now + math.max(0.05, fighter.combatProfile.OpeningDelay)
+	end
 end
 
 local function resolveWinnerByTiebreaker(): string
@@ -354,22 +410,22 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 		fighter.strikeAt = 0
 		fighter.windupEndsAt = 0
 		fighter.recoveryEndsAt = now + Constants.Arena.AttackRecovery
-		fighter.nextAttackAt = now + fighter.definition.AttackCooldown
+		fighter.nextAttackAt = now + fighter.combatProfile.AttackCooldown
 
 		local lungePosition = origin + desiredLook * 1.6
 		fighter.model:PivotTo(CFrame.lookAt(lungePosition, Vector3.new(target.X, lungePosition.Y, target.Z)))
-		opponent.humanoid:TakeDamage(fighter.definition.AttackDamage)
-		fighter.damageDealt += fighter.definition.AttackDamage
+		opponent.humanoid:TakeDamage(fighter.combatProfile.AttackDamage)
+		fighter.damageDealt += fighter.combatProfile.AttackDamage
 		fighter.hitsLanded += 1
 		updateHealthVisual(opponent)
 		local recoilPosition = opponent.rootPart.Position - desiredLook * Constants.Arena.HitRecoilDistance
 		opponent.model:PivotTo(CFrame.lookAt(recoilPosition, Vector3.new(origin.X, recoilPosition.Y, origin.Z)))
 		opponent.recoveryEndsAt = math.max(opponent.recoveryEndsAt, now + 0.12)
-		ArenaCombatFX.EmitHit(opponent.rootPart, fighter.definition.AttackDamage)
-		print(("[ArenaFight] %s hit %s for %d (hp=%.1f)"):format(
+		ArenaCombatFX.EmitHit(opponent.rootPart, fighter.combatProfile.AttackDamage)
+		print(("[ArenaFight] %s hit %s for %.1f (hp=%.1f)"):format(
 			fighter.definition.Name,
 			opponent.definition.Name,
-			fighter.definition.AttackDamage,
+			fighter.combatProfile.AttackDamage,
 			opponent.humanoid.Health
 		))
 		return
@@ -381,16 +437,18 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 		return
 	end
 
-	if distance < Constants.Arena.MinimumCombatDistance and now >= fighter.nextAttackAt then
-		local backstep = math.min(Constants.Arena.FighterMoveSpeed * 0.45 * deltaTime, Constants.Arena.MinimumCombatDistance - distance)
+	local minimumCombatDistance = Constants.Arena.MinimumCombatDistance + fighter.combatProfile.MinimumCombatDistanceOffset
+	local preferredCombatDistance = Constants.Arena.PreferredCombatDistance + fighter.combatProfile.PreferredCombatDistanceOffset
+
+	if distance < minimumCombatDistance and now >= fighter.nextAttackAt then
+		local backstep = math.min(fighter.combatProfile.MoveSpeed * 0.45 * deltaTime, minimumCombatDistance - distance)
 		local newPosition = origin - desiredLook * math.max(0.08, backstep)
 		fighter.model:PivotTo(CFrame.lookAt(newPosition, Vector3.new(target.X, newPosition.Y, target.Z)))
 		return
 	end
 
 	if distance > Constants.Arena.FightRange then
-		local moveSpeed = tonumber(fighter.definition.MoveSpeed) or Constants.Arena.FighterMoveSpeed
-		local moveStep = math.min(moveSpeed * deltaTime, math.max(0, distance - Constants.Arena.PreferredCombatDistance))
+		local moveStep = math.min(fighter.combatProfile.MoveSpeed * deltaTime, math.max(0, distance - preferredCombatDistance))
 		local newPosition = origin + desiredLook * moveStep
 		fighter.model:PivotTo(CFrame.lookAt(newPosition, Vector3.new(target.X, newPosition.Y, target.Z)))
 		return
@@ -400,7 +458,7 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 		return
 	end
 
-	fighter.windupEndsAt = now + Constants.Arena.AttackWindup
+	fighter.windupEndsAt = now + fighter.combatProfile.AttackWindup
 	fighter.strikeAt = fighter.windupEndsAt
 end
 
@@ -508,6 +566,18 @@ function ArenaEventService.Initialize()
 		DisplayDetail = "Loading event feed...",
 		EventCue = "Idle",
 		CountdownNumber = 0,
+		FighterAPower = 0,
+		FighterASpeed = 0,
+		FighterAToughness = 0,
+		FighterAWins = 0,
+		FighterALosses = 0,
+		FighterARecord = "0-0",
+		FighterBPower = 0,
+		FighterBSpeed = 0,
+		FighterBToughness = 0,
+		FighterBWins = 0,
+		FighterBLosses = 0,
+		FighterBRecord = "0-0",
 	})
 end
 
@@ -520,8 +590,12 @@ function ArenaEventService.Run()
 		destroyCurrentFighters()
 
 		local definitionA, definitionB = ArenaFighterDefs.GetDuelPair(currentRoundId)
+		local combatProfileA = ArenaFighterDefs.GetCombatProfile(definitionA, definitionB, currentRoundId)
+		local combatProfileB = ArenaFighterDefs.GetCombatProfile(definitionB, definitionA, currentRoundId)
 		local buildData = ArenaBuildService.GetArenaData()
 
+		setPublicChoiceState("FighterA", definitionA)
+		setPublicChoiceState("FighterB", definitionB)
 		updateState({
 			RoundId = currentRoundId,
 			FighterAName = definitionA.Name,
@@ -534,17 +608,28 @@ function ArenaEventService.Run()
 			FighterBHealthCurrent = definitionB.Health,
 			WinnerName = "",
 			WinnerSlot = "",
-			LastResult = "",
 		})
 
 		setPhase("Intermission", phaseDurations.Intermission)
 		setPresentation("NEXT MAIN EVENT", "Crowd reset and prep in progress.", "Intermission", 0)
 		tickPhase(phaseDurations.Intermission)
 
+		local fighterA = spawnFighter("A", definitionA, combatProfileA, buildData.spawnA)
+		local fighterB = spawnFighter("B", definitionB, combatProfileB, buildData.spawnB)
+		currentFighters = {fighterA, fighterB}
+		updateHealthVisual(fighterA)
+		updateHealthVisual(fighterB)
+		stageFighters()
+
 		setPhase("Introductions", phaseDurations.Introductions)
 		setPresentation(
 			("A: %s  VS  B: %s"):format(definitionA.Name, definitionB.Name),
-			("%s vs %s"):format(definitionA.Style, definitionB.Style),
+			("%s [%s]  VS  %s [%s]"):format(
+				definitionA.Style,
+				ArenaFighterDefs.GetPublicProfile(definitionA).Record,
+				definitionB.Style,
+				ArenaFighterDefs.GetPublicProfile(definitionB).Record
+			),
 			"Introductions",
 			0
 		)
@@ -561,24 +646,24 @@ function ArenaEventService.Run()
 		tickPhase(phaseDurations.BetWindow, true)
 		ArenaBetService.Close()
 
-		local fighterA = spawnFighter("A", definitionA, buildData.spawnA)
-		local fighterB = spawnFighter("B", definitionB, buildData.spawnB)
-		currentFighters = {fighterA, fighterB}
-		updateHealthVisual(fighterA)
-		updateHealthVisual(fighterB)
-
+		armFightersForRound()
 		setPhase("FightActive", phaseDurations.FightActive)
 		setPresentation("FIGHT!", ("%s  VS  %s"):format(definitionA.Name, definitionB.Name), "FightStart", 0)
 		pulseArenaLights(Color3.fromRGB(255, 204, 122), 2.8, 0.45)
 		local winningSlot = runFight()
 		local winnerName = ""
+		local winnerId = definitionA.Id
+		local loserId = definitionB.Id
 		if winningSlot == "A" then
 			winnerName = definitionA.Name
 		else
 			winnerName = definitionB.Name
+			winnerId = definitionB.Id
+			loserId = definitionA.Id
 		end
 
 		ArenaBetService.Resolve(winningSlot)
+		ArenaFighterDefs.RecordResult(winnerId, loserId)
 		updateState({
 			WinnerSlot = winningSlot or "",
 			WinnerName = winnerName,

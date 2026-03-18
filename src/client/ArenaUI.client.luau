@@ -133,13 +133,16 @@ listLayout.Parent = listHolder
 local cueBanner = Instance.new("TextLabel")
 cueBanner.AnchorPoint = Vector2.new(0.5, 0)
 cueBanner.Position = UDim2.new(0.5, 0, 0, 92)
-cueBanner.Size = UDim2.fromOffset(300, 42)
+cueBanner.Size = UDim2.fromOffset(300, 58)
 cueBanner.BackgroundColor3 = Color3.fromRGB(19, 24, 33)
 cueBanner.BackgroundTransparency = 0.24
 cueBanner.BorderSizePixel = 0
 cueBanner.Font = Enum.Font.GothamBlack
 cueBanner.TextSize = 22
 cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
+cueBanner.TextYAlignment = Enum.TextYAlignment.Top
+cueBanner.TextStrokeTransparency = 0.5
+cueBanner.TextStrokeColor3 = Color3.fromRGB(54, 34, 12)
 cueBanner.Visible = false
 cueBanner.ZIndex = 5
 cueBanner.Parent = gui
@@ -148,6 +151,32 @@ local cueStroke = Instance.new("UIStroke")
 cueStroke.Thickness = 2
 cueStroke.Color = Color3.fromRGB(255, 188, 84)
 cueStroke.Parent = cueBanner
+
+local cueSecondary = Instance.new("TextLabel")
+cueSecondary.Name = "Secondary"
+cueSecondary.AnchorPoint = Vector2.new(0.5, 0)
+cueSecondary.Position = UDim2.new(0.5, 0, 0, 32)
+cueSecondary.Size = UDim2.new(1, -20, 0, 18)
+cueSecondary.BackgroundTransparency = 1
+cueSecondary.Font = Enum.Font.GothamBold
+cueSecondary.TextSize = 16
+cueSecondary.TextColor3 = Color3.fromRGB(136, 230, 144)
+cueSecondary.TextStrokeTransparency = 0.35
+cueSecondary.TextStrokeColor3 = Color3.fromRGB(18, 22, 28)
+cueSecondary.TextWrapped = true
+cueSecondary.Text = ""
+cueSecondary.Visible = false
+cueSecondary.ZIndex = 6
+cueSecondary.Parent = cueBanner
+
+local cueScale = Instance.new("UIScale")
+cueScale.Scale = 1
+cueScale.Parent = cueBanner
+
+local FIGHTER_A_ACCENT = Color3.fromRGB(161, 74, 74)
+local FIGHTER_B_ACCENT = Color3.fromRGB(69, 108, 176)
+local FIGHTER_A_HEADER_TEXT = Color3.fromRGB(241, 205, 205)
+local FIGHTER_B_HEADER_TEXT = Color3.fromRGB(208, 223, 246)
 
 type EventSectionDefinition = {
 	id: string,
@@ -177,6 +206,8 @@ local arenaCueRefreshScheduled = false
 local isHubOpen = false
 local TOGGLE_ACTION = "ToggleNpcEventHub"
 local lastToggleAt = 0
+local localBetMarkerGui: BillboardGui? = nil
+local localBetMarkerTarget: BasePart? = nil
 
 local function connectButtonClick(button: TextButton, callback: () -> ())
 	button.MouseButton1Click:Connect(callback)
@@ -206,7 +237,14 @@ local function showCueBanner(text: string, color: Color3, duration: number)
 	cueBanner.Text = text
 	cueBanner.TextColor3 = color
 	cueBanner.BackgroundTransparency = 0.24
+	setCueSecondary("", cueSecondary.TextColor3)
 	cueBanner.Visible = true
+	cueScale.Scale = 0.96
+
+	local pop = TweenService:Create(cueScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Scale = 1,
+	})
+	pop:Play()
 
 	local fade = TweenService:Create(cueBanner, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0.92,
@@ -242,28 +280,36 @@ local function scheduleArenaCueRefresh()
 
 			if not shouldShowArenaCueBanner() then
 				cueBanner.Visible = false
+				setCueSecondary("", cueSecondary.TextColor3)
 			elseif countdownNumber > 0 then
 				cueBanner.Visible = true
 				cueBanner.Text = tostring(countdownNumber)
 				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 				cueBanner.BackgroundTransparency = 0.22
+				setCueSecondary("", cueSecondary.TextColor3)
 			elseif eventCue == "FightStart" then
 				cueBanner.Visible = true
 				cueBanner.Text = ("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT")
 				cueBanner.TextColor3 = Color3.fromRGB(255, 110, 92)
 				cueBanner.BackgroundTransparency = 0.22
+				setCueSecondary("", cueSecondary.TextColor3)
 			elseif eventCue == "Winner" and winnerName ~= "" then
 				cueBanner.Visible = true
 				cueBanner.Text = ("%s WINS"):format(winnerName)
 				cueBanner.TextColor3 = Color3.fromRGB(136, 230, 144)
 				cueBanner.BackgroundTransparency = 0.22
+				local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
+				local outcomeBannerText = getArenaOutcomeBannerText(roundId)
+				setCueSecondary(outcomeBannerText, getArenaOutcomeBannerColor(roundId))
 			elseif eventCue == "Introductions" then
 				cueBanner.Visible = true
 				cueBanner.Text = "MAIN EVENT"
 				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 				cueBanner.BackgroundTransparency = 0.22
+				setCueSecondary("", cueSecondary.TextColor3)
 			else
 				cueBanner.Visible = false
+				setCueSecondary("", cueSecondary.TextColor3)
 			end
 		end
 	end)
@@ -284,6 +330,63 @@ local function getArenaOutcomeText(currentRoundId: number): string
 	return ""
 end
 
+local function setCueSecondary(text: string, color: Color3)
+	local hasSecondary = text ~= ""
+	cueSecondary.Text = text
+	cueSecondary.TextColor3 = color
+	cueSecondary.Visible = hasSecondary
+	cueBanner.Size = if hasSecondary then UDim2.fromOffset(300, 60) else UDim2.fromOffset(300, 42)
+end
+
+local function getArenaOutcomeBannerText(currentRoundId: number): string
+	local outcomeText = getArenaOutcomeText(currentRoundId)
+	if outcomeText == "Bet Won" then
+		return "BET WON"
+	elseif outcomeText == "Bet Lost" then
+		return "BET LOST"
+	end
+	return ""
+end
+
+local function getArenaOutcomeBannerColor(currentRoundId: number): Color3
+	local outcomeText = getArenaOutcomeText(currentRoundId)
+	if outcomeText == "Bet Won" then
+		return Color3.fromRGB(144, 242, 152)
+	elseif outcomeText == "Bet Lost" then
+		return Color3.fromRGB(239, 126, 96)
+	end
+	return Color3.fromRGB(220, 228, 238)
+end
+
+local function getArenaWinnerInfoText(phase: string, lastWinnerName: string, currentWinnerName: string, fighterAName: string, fighterBName: string): string
+	local displayFighterA = string.gsub(fighterAName, "^%s*(.-)%s*$", "%1")
+	local displayFighterB = string.gsub(fighterBName, "^%s*(.-)%s*$", "%1")
+	if displayFighterA == "" then
+		displayFighterA = "Fighter A"
+	end
+	if displayFighterB == "" then
+		displayFighterB = "Fighter B"
+	end
+
+	if phase == "FightActive" then
+		return ("Live Fight: %s vs %s"):format(displayFighterA, displayFighterB)
+	elseif phase == "Result" and currentWinnerName ~= "" then
+		return ("Winner: %s"):format(currentWinnerName)
+	elseif lastWinnerName ~= "" then
+		return ("Last Winner: %s"):format(lastWinnerName)
+	end
+	return "Last Winner: --"
+end
+
+local function getArenaWinnerInfoColor(phase: string): Color3
+	if phase == "FightActive" then
+		return Color3.fromRGB(226, 192, 106)
+	elseif phase == "Result" then
+		return Color3.fromRGB(136, 230, 144)
+	end
+	return Color3.fromRGB(168, 181, 196)
+end
+
 local function makeSectionLabel(parent: Instance, height: number, textSize: number, color: Color3, font: Enum.Font): TextLabel
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, 0, 0, height)
@@ -297,6 +400,10 @@ local function makeSectionLabel(parent: Instance, height: number, textSize: numb
 	return label
 end
 
+local function setInfoLine(label: TextLabel, prefix: string, valueText: string)
+	label.Text = ("%s %s"):format(prefix, valueText)
+end
+
 local function makeActionButton(parent: Instance, text: string, color: Color3): TextButton
 	local button = Instance.new("TextButton")
 	button.Size = UDim2.new(1, 0, 0, 30)
@@ -304,31 +411,211 @@ local function makeActionButton(parent: Instance, text: string, color: Color3): 
 	button.TextColor3 = Color3.fromRGB(245, 247, 250)
 	button.Font = Enum.Font.GothamBold
 	button.TextSize = 14
+	button.TextTruncate = Enum.TextTruncate.AtEnd
 	button.Text = text
 	button.BorderSizePixel = 0
 	button.Parent = parent
 	return button
 end
 
+local function getChoiceDisplayName(choiceName: string, fallbackName: string): string
+	local trimmed = string.gsub(choiceName, "^%s*(.-)%s*$", "%1")
+	if trimmed == "" then
+		return fallbackName
+	end
+	return trimmed
+end
+
+local function getChoiceButtonLabel(choiceName: string, fallbackName: string, isLocked: boolean): string
+	local displayName = getChoiceDisplayName(choiceName, fallbackName)
+	if isLocked then
+		return ("Locked: %s"):format(displayName)
+	end
+	return ("Bet: %s"):format(displayName)
+end
+
+local function getStatFillColor(value: number): Color3
+	local clampedValue = math.clamp(math.floor(value + 0.5), 0, 10)
+	if clampedValue <= 2 then
+		return Color3.fromRGB(210, 84, 84)
+	elseif clampedValue <= 5 then
+		return Color3.fromRGB(224, 142, 74)
+	elseif clampedValue <= 7 then
+		return Color3.fromRGB(230, 198, 82)
+	end
+	return Color3.fromRGB(104, 201, 116)
+end
+
+local function setStatBar(row: Frame, labelText: string, value: number)
+	local clampedValue = math.clamp(value, 0, 10)
+	local label = row:FindFirstChild("Label") :: TextLabel
+	local barBackground = row:FindFirstChild("BarBackground") :: Frame
+	local barFill = barBackground:FindFirstChild("BarFill") :: Frame
+
+	label.Text = labelText
+	barFill.Size = UDim2.fromScale(clampedValue / 10, 1)
+	barFill.BackgroundColor3 = getStatFillColor(clampedValue)
+end
+
+local function getFighterStatHeaderLabel(card: Frame): TextLabel?
+	local headerFrame = card:FindFirstChild("HeaderFrame")
+	if headerFrame and headerFrame:IsA("Frame") then
+		local header = headerFrame:FindFirstChild("Header")
+		if header and header:IsA("TextLabel") then
+			return header
+		end
+	end
+	return nil
+end
+
+local function makeStatRow(parent: Instance, labelText: string): Frame
+	local row = Instance.new("Frame")
+	row.Name = "StatRow"
+	row.Size = UDim2.new(1, 0, 0, 16)
+	row.BackgroundTransparency = 1
+	row.Parent = parent
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromOffset(78, 16)
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 13
+	label.TextColor3 = Color3.fromRGB(232, 238, 245)
+	label.Text = labelText
+	label.Parent = row
+
+	local barBackground = Instance.new("Frame")
+	barBackground.Name = "BarBackground"
+	barBackground.Position = UDim2.fromOffset(90, 3)
+	barBackground.Size = UDim2.new(1, -90, 0, 10)
+	barBackground.BackgroundColor3 = Color3.fromRGB(34, 42, 56)
+	barBackground.BackgroundTransparency = 0.22
+	barBackground.BorderSizePixel = 0
+	barBackground.Parent = row
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.Size = UDim2.fromScale(0, 1)
+	barFill.BackgroundColor3 = Color3.fromRGB(230, 198, 82)
+	barFill.BorderSizePixel = 0
+	barFill.Parent = barBackground
+
+	return row
+end
+
+local function makeFighterStatCard(parent: Instance, accentColor: Color3, headerTextColor: Color3): Frame
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1, 0, 0, 74)
+	card.BackgroundColor3 = Color3.fromRGB(18, 24, 34)
+	card.BackgroundTransparency = 0.18
+	card.BorderSizePixel = 0
+	card.Parent = parent
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 8)
+	padding.PaddingRight = UDim.new(0, 8)
+	padding.PaddingTop = UDim.new(0, 5)
+	padding.PaddingBottom = UDim.new(0, 5)
+	padding.Parent = card
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 3)
+	layout.Parent = card
+
+	local headerFrame = Instance.new("Frame")
+	headerFrame.Name = "HeaderFrame"
+	headerFrame.Size = UDim2.new(1, 0, 0, 18)
+	headerFrame.BackgroundColor3 = accentColor
+	headerFrame.BackgroundTransparency = 0.82
+	headerFrame.BorderSizePixel = 0
+	headerFrame.Parent = card
+
+	local headerAccent = Instance.new("Frame")
+	headerAccent.Name = "HeaderAccent"
+	headerAccent.Size = UDim2.fromOffset(4, 18)
+	headerAccent.BackgroundColor3 = accentColor
+	headerAccent.BorderSizePixel = 0
+	headerAccent.Parent = headerFrame
+
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.BackgroundTransparency = 1
+	header.Position = UDim2.fromOffset(10, 0)
+	header.Size = UDim2.new(1, -12, 1, 0)
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.Font = Enum.Font.GothamBlack
+	header.TextSize = 13
+	header.TextColor3 = headerTextColor
+	header.Text = ""
+	header.Parent = headerFrame
+
+	local powerRow = makeStatRow(card, "Power")
+	powerRow.Name = "PowerRow"
+
+	local speedRow = makeStatRow(card, "Speed")
+	speedRow.Name = "SpeedRow"
+
+	local toughnessRow = makeStatRow(card, "Toughness")
+	toughnessRow.Name = "ToughnessRow"
+
+	return card
+end
+
+local function setFighterStatCard(
+	card: Frame,
+	choiceName: string,
+	fallbackName: string,
+	style: string,
+	record: string,
+	power: number,
+	speed: number,
+	toughness: number
+)
+	local displayName = getChoiceDisplayName(choiceName, fallbackName)
+	local displayStyle = style ~= "" and style or "Unknown"
+	local displayRecord = record ~= "" and record or "0-0"
+	local header = getFighterStatHeaderLabel(card)
+
+	if header then
+		header.Text = ("%s | %s | REC %s"):format(displayName, displayStyle, displayRecord)
+	end
+	setStatBar(card:FindFirstChild("PowerRow") :: Frame, "Power", power)
+	setStatBar(card:FindFirstChild("SpeedRow") :: Frame, "Speed", speed)
+	setStatBar(card:FindFirstChild("ToughnessRow") :: Frame, "Toughness", toughness)
+end
+
 local function buildArenaBody(body: Frame): {[string]: any}
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 5)
+	layout.Padding = UDim.new(0, 3)
 	layout.Parent = body
 
-	local status = makeSectionLabel(body, 18, 14, Color3.fromRGB(229, 233, 240), Enum.Font.GothamSemibold)
-	local winner = makeSectionLabel(body, 18, 14, Color3.fromRGB(183, 198, 214), Enum.Font.GothamSemibold)
-	local matchup = makeSectionLabel(body, 34, 14, Color3.fromRGB(214, 219, 228), Enum.Font.GothamSemibold)
-	local timer = makeSectionLabel(body, 18, 14, Color3.fromRGB(183, 198, 214), Enum.Font.GothamSemibold)
-	local result = makeSectionLabel(body, 18, 14, Color3.fromRGB(129, 227, 137), Enum.Font.GothamBold)
+	local status = makeSectionLabel(body, 18, 13, Color3.fromRGB(228, 235, 243), Enum.Font.GothamBold)
+	local timer = makeSectionLabel(body, 18, 13, Color3.fromRGB(220, 228, 238), Enum.Font.GothamBold)
+	local fighterAStats = makeFighterStatCard(body, FIGHTER_A_ACCENT, FIGHTER_A_HEADER_TEXT)
+	local fighterBStats = makeFighterStatCard(body, FIGHTER_B_ACCENT, FIGHTER_B_HEADER_TEXT)
+	local winner = makeSectionLabel(body, 16, 13, Color3.fromRGB(213, 221, 232), Enum.Font.GothamBold)
+	local result = makeSectionLabel(body, 18, 13, Color3.fromRGB(136, 230, 144), Enum.Font.GothamBold)
 
 	local buttonRow = Instance.new("Frame")
-	buttonRow.Size = UDim2.new(1, 0, 0, 100)
+	buttonRow.Size = UDim2.new(1, 0, 0, 104)
 	buttonRow.BackgroundTransparency = 1
 	buttonRow.Parent = body
 
+	local buttonPadding = Instance.new("UIPadding")
+	buttonPadding.PaddingBottom = UDim.new(0, 8)
+	buttonPadding.Parent = buttonRow
+
 	local buttonLayout = Instance.new("UIListLayout")
-	buttonLayout.Padding = UDim.new(0, 5)
+	buttonLayout.Padding = UDim.new(0, 4)
 	buttonLayout.Parent = buttonRow
+
+	local sectionSpacer = Instance.new("Frame")
+	sectionSpacer.Name = "SectionSpacer"
+	sectionSpacer.Size = UDim2.new(1, 0, 0, 8)
+	sectionSpacer.BackgroundTransparency = 1
+	sectionSpacer.Parent = buttonRow
 
 	local betA = makeActionButton(buttonRow, "Bet A", Color3.fromRGB(161, 74, 74))
 	local betB = makeActionButton(buttonRow, "Bet B", Color3.fromRGB(69, 108, 176))
@@ -336,14 +623,113 @@ local function buildArenaBody(body: Frame): {[string]: any}
 
 	return {
 		status = status,
-		winner = winner,
-		matchup = matchup,
 		timer = timer,
+		fighterAStats = fighterAStats,
+		fighterBStats = fighterBStats,
+		winner = winner,
 		result = result,
 		betA = betA,
 		betB = betB,
 		spectate = spectate,
 	}
+end
+
+local function findArenaRuntimeFolder(): Folder?
+	local world = workspace:FindFirstChild("World")
+	local arena = world and world:FindFirstChild("Arena")
+	local venue = arena and arena:FindFirstChild("Venue")
+	local runtime = venue and venue:FindFirstChild("Runtime")
+	if runtime and runtime:IsA("Folder") then
+		return runtime
+	end
+	return nil
+end
+
+local function findArenaFighterPartForSlot(slot: string): BasePart?
+	local runtime = findArenaRuntimeFolder()
+	if not runtime then
+		return nil
+	end
+
+	for _, child in ipairs(runtime:GetChildren()) do
+		if child:IsA("Model") and tostring(child:GetAttribute("ArenaSlot") or "") == slot then
+			local head = child:FindFirstChild("Head")
+			if head and head:IsA("BasePart") then
+				return head
+			end
+			local primaryPart = child.PrimaryPart
+			if primaryPart then
+				return primaryPart
+			end
+		end
+	end
+
+	return nil
+end
+
+local function ensureLocalBetMarker(): BillboardGui
+	if localBetMarkerGui and localBetMarkerGui.Parent then
+		return localBetMarkerGui
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "ArenaLocalBetMarker"
+	billboard.Size = UDim2.fromOffset(30, 22)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.85, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = Constants.Arena.NameplateMaxDistance
+	billboard.Enabled = false
+
+	local arrow = Instance.new("TextLabel")
+	arrow.Name = "Arrow"
+	arrow.BackgroundTransparency = 1
+	arrow.Size = UDim2.fromScale(1, 1)
+	arrow.Font = Enum.Font.GothamBlack
+	arrow.TextScaled = true
+	arrow.Text = "v"
+	arrow.TextColor3 = FIGHTER_A_HEADER_TEXT
+	arrow.TextStrokeTransparency = 0.45
+	arrow.TextStrokeColor3 = Color3.fromRGB(12, 16, 22)
+	arrow.Parent = billboard
+
+	localBetMarkerGui = billboard
+	return billboard
+end
+
+local function refreshLocalBetMarker()
+	local currentRoundId = tonumber(player:GetAttribute("ArenaBetRoundId") or -1) or -1
+	local currentBetSlot = tostring(player:GetAttribute("ArenaBetSlot") or "")
+	local arenaRoundId = tonumber(arenaState:GetAttribute("RoundId") or -1) or -1
+	local hasActiveBetMarker = currentBetSlot ~= "" and currentRoundId == arenaRoundId
+	local marker = ensureLocalBetMarker()
+
+	if not hasActiveBetMarker then
+		marker.Enabled = false
+		marker.Parent = nil
+		localBetMarkerTarget = nil
+		return
+	end
+
+	local targetPart = findArenaFighterPartForSlot(currentBetSlot)
+	if not targetPart then
+		marker.Enabled = false
+		marker.Parent = nil
+		localBetMarkerTarget = nil
+		return
+	end
+
+	if localBetMarkerTarget ~= targetPart then
+		marker.Parent = targetPart
+		localBetMarkerTarget = targetPart
+	end
+
+	local arrow = marker:FindFirstChild("Arrow") :: TextLabel
+	if currentBetSlot == "A" then
+		arrow.TextColor3 = FIGHTER_A_HEADER_TEXT
+	else
+		arrow.TextColor3 = FIGHTER_B_HEADER_TEXT
+	end
+	marker.Enabled = true
 end
 
 local function buildPlaceholderBody(body: Frame, message: string): {[string]: any}
@@ -371,23 +757,55 @@ local eventSections: {EventSectionDefinition} = {
 			local fighterBName = tostring(arenaState:GetAttribute("FighterBName") or "Fighter B")
 			local fighterAStyle = tostring(arenaState:GetAttribute("FighterAStyle") or "")
 			local fighterBStyle = tostring(arenaState:GetAttribute("FighterBStyle") or "")
+			local fighterAPower = tonumber(arenaState:GetAttribute("FighterAPower") or 0) or 0
+			local fighterASpeed = tonumber(arenaState:GetAttribute("FighterASpeed") or 0) or 0
+			local fighterAToughness = tonumber(arenaState:GetAttribute("FighterAToughness") or 0) or 0
+			local fighterARecord = tostring(arenaState:GetAttribute("FighterARecord") or "0-0")
+			local fighterBPower = tonumber(arenaState:GetAttribute("FighterBPower") or 0) or 0
+			local fighterBSpeed = tonumber(arenaState:GetAttribute("FighterBSpeed") or 0) or 0
+			local fighterBToughness = tonumber(arenaState:GetAttribute("FighterBToughness") or 0) or 0
+			local fighterBRecord = tostring(arenaState:GetAttribute("FighterBRecord") or "0-0")
 			local winnerName = tostring(arenaState:GetAttribute("LastResult") or "")
+			local currentWinnerName = tostring(arenaState:GetAttribute("WinnerName") or "")
 			local timeRemaining = tonumber(arenaState:GetAttribute("TimeRemaining") or 0) or 0
 			local bettingOpen = arenaState:GetAttribute("BettingOpen") == true
 			local currentBetRoundId = tonumber(player:GetAttribute("ArenaBetRoundId") or -1) or -1
 			local currentBetSlot = tostring(player:GetAttribute("ArenaBetSlot") or "")
 			local alreadyBet = currentBetRoundId == roundId and currentBetSlot ~= ""
 			local statusLabel = views.status :: TextLabel
-			local winnerLabel = views.winner :: TextLabel
-			local matchupLabel = views.matchup :: TextLabel
 			local timerLabel = views.timer :: TextLabel
+			local fighterAStatsCard = views.fighterAStats :: Frame
+			local fighterBStatsCard = views.fighterBStats :: Frame
+			local winnerLabel = views.winner :: TextLabel
 			local resultLabel = views.result :: TextLabel
 
-			statusLabel.Text = ("Status: %s"):format(phase)
-			winnerLabel.Text = ("Last Winner: %s"):format(winnerName ~= "" and winnerName or "--")
-			matchupLabel.Text = ("Match: %s [%s] vs %s [%s]"):format(fighterAName, fighterAStyle, fighterBName, fighterBStyle)
-			timerLabel.Text = ("Time Remaining: %ds"):format(math.max(0, math.floor(timeRemaining)))
-			resultLabel.Text = getArenaOutcomeText(roundId)
+			setInfoLine(statusLabel, "Status:", phase)
+			setInfoLine(timerLabel, "Time Remaining:", ("%ds"):format(math.max(0, math.floor(timeRemaining))))
+			setFighterStatCard(
+				fighterAStatsCard,
+				fighterAName,
+				"Fighter A",
+				fighterAStyle,
+				fighterARecord,
+				fighterAPower,
+				fighterASpeed,
+				fighterAToughness
+			)
+			setFighterStatCard(
+				fighterBStatsCard,
+				fighterBName,
+				"Fighter B",
+				fighterBStyle,
+				fighterBRecord,
+				fighterBPower,
+				fighterBSpeed,
+				fighterBToughness
+			)
+			local winnerInfoText = getArenaWinnerInfoText(phase, winnerName, currentWinnerName, fighterAName, fighterBName)
+			winnerLabel.Text = winnerInfoText
+			winnerLabel.TextColor3 = getArenaWinnerInfoColor(phase)
+			resultLabel.Text = ""
+			resultLabel.Visible = false
 
 			local betA = views.betA :: TextButton
 			local betB = views.betB :: TextButton
@@ -400,8 +818,8 @@ local eventSections: {EventSectionDefinition} = {
 			betB.AutoButtonColor = canBet
 			betA.BackgroundTransparency = if canBet then 0 else 0.45
 			betB.BackgroundTransparency = if canBet then 0 else 0.45
-			betA.Text = if alreadyBet and currentBetSlot == "A" then "Bet Locked On A" else "Bet A"
-			betB.Text = if alreadyBet and currentBetSlot == "B" then "Bet Locked On B" else "Bet B"
+			betA.Text = getChoiceButtonLabel(fighterAName, "Fighter A", alreadyBet and currentBetSlot == "A")
+			betB.Text = getChoiceButtonLabel(fighterBName, "Fighter B", alreadyBet and currentBetSlot == "B")
 			spectate.Text = if isSpectating() then "Return To Player" else "Spectate Fight"
 		end,
 	},
@@ -503,7 +921,7 @@ local function buildSection(definition: EventSectionDefinition)
 	local bodyPadding = Instance.new("UIPadding")
 	bodyPadding.PaddingLeft = UDim.new(0, 14)
 	bodyPadding.PaddingRight = UDim.new(0, 14)
-	bodyPadding.PaddingTop = UDim.new(0, 8)
+	bodyPadding.PaddingTop = UDim.new(0, 2)
 	bodyPadding.PaddingBottom = UDim.new(0, 10)
 	bodyPadding.Parent = body
 
@@ -536,28 +954,36 @@ local function refreshCueBanner()
 
 	if not shouldShowArenaCueBanner() then
 		cueBanner.Visible = false
+		setCueSecondary("", cueSecondary.TextColor3)
 	elseif countdownNumber > 0 then
 		cueBanner.Visible = true
 		cueBanner.Text = tostring(countdownNumber)
 		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 		cueBanner.BackgroundTransparency = 0.22
+		setCueSecondary("", cueSecondary.TextColor3)
 	elseif eventCue == "FightStart" then
 		cueBanner.Visible = true
 		cueBanner.Text = ("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT")
 		cueBanner.TextColor3 = Color3.fromRGB(255, 110, 92)
 		cueBanner.BackgroundTransparency = 0.22
+		setCueSecondary("", cueSecondary.TextColor3)
 	elseif eventCue == "Winner" and winnerName ~= "" then
 		cueBanner.Visible = true
 		cueBanner.Text = ("%s WINS"):format(winnerName)
 		cueBanner.TextColor3 = Color3.fromRGB(136, 230, 144)
 		cueBanner.BackgroundTransparency = 0.22
+		local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
+		local outcomeBannerText = getArenaOutcomeBannerText(roundId)
+		setCueSecondary(outcomeBannerText, getArenaOutcomeBannerColor(roundId))
 	elseif eventCue == "Introductions" then
 		cueBanner.Visible = true
 		cueBanner.Text = "MAIN EVENT"
 		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 		cueBanner.BackgroundTransparency = 0.22
+		setCueSecondary("", cueSecondary.TextColor3)
 	else
 		cueBanner.Visible = false
+		setCueSecondary("", cueSecondary.TextColor3)
 	end
 
 	if cueBanner.Visible then
@@ -579,6 +1005,7 @@ end
 local function refreshAll()
 	refreshSections()
 	refreshCueBanner()
+	refreshLocalBetMarker()
 end
 
 local function setHubOpen(open: boolean)
@@ -663,6 +1090,14 @@ for _, attr in ipairs({
 	"FighterBName",
 	"FighterAStyle",
 	"FighterBStyle",
+	"FighterAPower",
+	"FighterASpeed",
+	"FighterAToughness",
+	"FighterARecord",
+	"FighterBPower",
+	"FighterBSpeed",
+	"FighterBToughness",
+	"FighterBRecord",
 	"TimeRemaining",
 	"WinnerName",
 	"LastResult",
@@ -684,15 +1119,6 @@ playerGui:GetAttributeChangedSignal("ArenaSpectating"):Connect(refreshAll)
 playerGui:GetAttributeChangedSignal("ArenaSpectateRequested"):Connect(refreshAll)
 
 player:GetAttributeChangedSignal("ArenaOutcome"):Connect(function()
-	if not shouldShowArenaCueBanner() then
-		return
-	end
-	local outcome = tostring(player:GetAttribute("ArenaOutcome") or "")
-	if outcome == "Won" then
-		showCueBanner("BET WON", Color3.fromRGB(129, 227, 137), 1.2)
-	elseif outcome == "Lost" then
-		showCueBanner("BET LOST", Color3.fromRGB(255, 128, 115), 1.2)
-	end
 	refreshAll()
 end)
 

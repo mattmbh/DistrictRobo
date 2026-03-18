@@ -96,7 +96,8 @@ end
 refresh = function()
 	local phase = tostring(arenaState:GetAttribute("Phase") or "")
 	local active = arenaState:GetAttribute("IsArenaActive") == true
-	local canWatch = active and phase == "FightActive" and isNearArena()
+	local canWatchPhase = phase == "Introductions" or phase == "BetWindow" or phase == "FightActive"
+	local canWatch = active and canWatchPhase and isNearArena()
 	button.Visible = canWatch or watching
 	if not canWatch and watching then
 		stopSpectating()
