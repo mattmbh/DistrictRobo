@@ -173,6 +173,72 @@ local cueScale = Instance.new("UIScale")
 cueScale.Scale = 1
 cueScale.Parent = cueBanner
 
+local lastCuePresentationKey = ""
+local pulseCueBanner: (number) -> ()
+
+local personalResultBanner = Instance.new("Frame")
+personalResultBanner.Name = "PersonalResultBanner"
+personalResultBanner.AnchorPoint = Vector2.new(0.5, 0.5)
+personalResultBanner.Position = UDim2.new(0.5, 0, 0.38, 0)
+personalResultBanner.Size = UDim2.fromOffset(360, 96)
+personalResultBanner.BackgroundColor3 = Color3.fromRGB(18, 24, 33)
+personalResultBanner.BackgroundTransparency = 0.12
+personalResultBanner.BorderSizePixel = 0
+personalResultBanner.Visible = false
+personalResultBanner.ZIndex = 15
+personalResultBanner.Parent = gui
+
+local personalResultStroke = Instance.new("UIStroke")
+personalResultStroke.Thickness = 2
+personalResultStroke.Color = Color3.fromRGB(146, 238, 152)
+personalResultStroke.Parent = personalResultBanner
+
+local personalResultTitle = Instance.new("TextLabel")
+personalResultTitle.Name = "Title"
+personalResultTitle.BackgroundTransparency = 1
+personalResultTitle.Position = UDim2.fromOffset(14, 12)
+personalResultTitle.Size = UDim2.new(1, -28, 0, 34)
+personalResultTitle.Font = Enum.Font.GothamBlack
+personalResultTitle.TextSize = 28
+personalResultTitle.TextColor3 = Color3.fromRGB(144, 242, 152)
+personalResultTitle.TextStrokeTransparency = 0.35
+personalResultTitle.TextStrokeColor3 = Color3.fromRGB(14, 18, 24)
+personalResultTitle.Text = ""
+personalResultTitle.ZIndex = 16
+personalResultTitle.Parent = personalResultBanner
+
+local personalResultDetail = Instance.new("TextLabel")
+personalResultDetail.Name = "Detail"
+personalResultDetail.BackgroundTransparency = 1
+personalResultDetail.Position = UDim2.fromOffset(14, 48)
+personalResultDetail.Size = UDim2.new(1, -28, 0, 18)
+personalResultDetail.Font = Enum.Font.GothamBold
+personalResultDetail.TextSize = 14
+personalResultDetail.TextColor3 = Color3.fromRGB(245, 235, 208)
+personalResultDetail.TextStrokeTransparency = 0.6
+personalResultDetail.TextStrokeColor3 = Color3.fromRGB(14, 18, 24)
+personalResultDetail.Text = ""
+personalResultDetail.ZIndex = 16
+personalResultDetail.Parent = personalResultBanner
+
+local personalResultReward = Instance.new("TextLabel")
+personalResultReward.Name = "Reward"
+personalResultReward.BackgroundTransparency = 1
+personalResultReward.Position = UDim2.fromOffset(14, 66)
+personalResultReward.Size = UDim2.new(1, -28, 0, 18)
+personalResultReward.Font = Enum.Font.GothamBold
+personalResultReward.TextSize = 15
+personalResultReward.TextColor3 = Color3.fromRGB(255, 223, 138)
+personalResultReward.TextStrokeTransparency = 0.55
+personalResultReward.TextStrokeColor3 = Color3.fromRGB(14, 18, 24)
+personalResultReward.Text = ""
+personalResultReward.ZIndex = 16
+personalResultReward.Parent = personalResultBanner
+
+local personalResultScale = Instance.new("UIScale")
+personalResultScale.Scale = 1
+personalResultScale.Parent = personalResultBanner
+
 local FIGHTER_A_ACCENT = Color3.fromRGB(161, 74, 74)
 local FIGHTER_B_ACCENT = Color3.fromRGB(69, 108, 176)
 local FIGHTER_A_HEADER_TEXT = Color3.fromRGB(241, 205, 205)
@@ -208,6 +274,8 @@ local TOGGLE_ACTION = "ToggleNpcEventHub"
 local lastToggleAt = 0
 local localPredictionMarkerGui: BillboardGui? = nil
 local localPredictionMarkerTarget: BasePart? = nil
+local personalResultToken = 0
+local lastPersonalResultRoundId = -1
 
 local function connectButtonClick(button: TextButton, callback: () -> ())
 	button.MouseButton1Click:Connect(callback)
@@ -233,20 +301,146 @@ end
 
 local setCueSecondary: (string, Color3) -> ()
 
+local function getPredictedFighterNameForCurrentRound(): string
+	local predictedSlot = tostring(player:GetAttribute("ArenaPredictionSlot") or "")
+	if predictedSlot == "A" then
+		local fighterName = tostring(arenaState:GetAttribute("FighterAName") or "")
+		local trimmed = string.gsub(fighterName, "^%s*(.-)%s*$", "%1")
+		return if trimmed ~= "" then trimmed else "Fighter A"
+	elseif predictedSlot == "B" then
+		local fighterName = tostring(arenaState:GetAttribute("FighterBName") or "")
+		local trimmed = string.gsub(fighterName, "^%s*(.-)%s*$", "%1")
+		return if trimmed ~= "" then trimmed else "Fighter B"
+	end
+	return ""
+end
+
+local function hidePersonalResultBanner()
+	personalResultToken += 1
+	personalResultBanner.Visible = false
+	personalResultBanner.BackgroundTransparency = 0.12
+	personalResultTitle.TextTransparency = 0
+	personalResultTitle.TextStrokeTransparency = 0.35
+	personalResultDetail.TextTransparency = 0
+	personalResultDetail.TextStrokeTransparency = 0.6
+	personalResultReward.TextTransparency = 0
+	personalResultReward.TextStrokeTransparency = 0.55
+	personalResultDetail.Text = ""
+	personalResultReward.Text = ""
+	personalResultScale.Scale = 1
+end
+
+local function showPersonalResultBanner(titleText: string, titleColor: Color3, detailText: string, rewardText: string, duration: number, scaleFrom: number)
+	personalResultToken += 1
+	local current = personalResultToken
+
+	personalResultTitle.Text = titleText
+	personalResultTitle.TextColor3 = titleColor
+	personalResultDetail.Text = detailText
+	personalResultDetail.Visible = detailText ~= ""
+	personalResultReward.Text = rewardText
+	personalResultReward.Visible = rewardText ~= ""
+	personalResultStroke.Color = titleColor
+	personalResultBanner.BackgroundTransparency = if titleText == "PREDICTION CORRECT" then 0.1 else 0.18
+	personalResultTitle.TextTransparency = 0
+	personalResultTitle.TextStrokeTransparency = 0.35
+	personalResultDetail.TextTransparency = 0
+	personalResultDetail.TextStrokeTransparency = 0.6
+	personalResultReward.TextTransparency = 0
+	personalResultReward.TextStrokeTransparency = 0.55
+	personalResultBanner.Visible = true
+	personalResultScale.Scale = scaleFrom
+
+	local settle = TweenService:Create(personalResultScale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1,
+	})
+	settle:Play()
+
+	task.delay(duration, function()
+		if current ~= personalResultToken then
+			return
+		end
+
+		TweenService:Create(personalResultBanner, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1,
+		}):Play()
+		TweenService:Create(personalResultTitle, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+		TweenService:Create(personalResultDetail, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+		TweenService:Create(personalResultReward, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+		task.delay(0.24, function()
+			if current == personalResultToken then
+				personalResultBanner.Visible = false
+			end
+		end)
+	end)
+end
+
+local function refreshPersonalResultBanner()
+	local phase = tostring(arenaState:GetAttribute("Phase") or "")
+	local roundId = tonumber(arenaState:GetAttribute("RoundId") or -1) or -1
+	local outcomeRoundId = tonumber(player:GetAttribute("ArenaOutcomeRoundId") or -1) or -1
+	local outcome = tostring(player:GetAttribute("ArenaOutcome") or "")
+
+	if phase ~= "Result" then
+		hidePersonalResultBanner()
+		if phase == "PredictionWindow" or phase == "Intermission" or phase == "Introductions" then
+			lastPersonalResultRoundId = -1
+		end
+		return
+	end
+
+	if outcomeRoundId ~= roundId or outcome == "" or lastPersonalResultRoundId == roundId then
+		return
+	end
+
+	local predictedName = getPredictedFighterNameForCurrentRound()
+	local detailText = predictedName ~= "" and ("You predicted: %s"):format(predictedName) or ""
+
+	if outcome == "Correct" then
+		showPersonalResultBanner(
+			"PREDICTION CORRECT",
+			Color3.fromRGB(144, 242, 152),
+			detailText,
+			("+%d Credits"):format(Constants.Arena.CorrectPredictionReward),
+			1.8,
+			1.08
+		)
+	elseif outcome == "Missed" then
+		showPersonalResultBanner(
+			"PREDICTION MISSED",
+			Color3.fromRGB(239, 126, 96),
+			detailText,
+			"",
+			1.6,
+			1.04
+		)
+	else
+		return
+	end
+
+	lastPersonalResultRoundId = roundId
+end
+
 local function showCueBanner(text: string, color: Color3, duration: number)
 	resultCueToken += 1
 	local current = resultCueToken
 	cueBanner.Text = text
 	cueBanner.TextColor3 = color
+	cueBanner.TextSize = 22
 	cueBanner.BackgroundTransparency = 0.24
+	cueStroke.Color = Color3.fromRGB(255, 188, 84)
 	setCueSecondary("", cueSecondary.TextColor3)
 	cueBanner.Visible = true
-	cueScale.Scale = 0.96
-
-	local pop = TweenService:Create(cueScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Scale = 1,
-	})
-	pop:Play()
+	pulseCueBanner(0.96)
 
 	local fade = TweenService:Create(cueBanner, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0.92,
@@ -283,35 +477,28 @@ local function scheduleArenaCueRefresh()
 			if not shouldShowArenaCueBanner() then
 				cueBanner.Visible = false
 				setCueSecondary("", cueSecondary.TextColor3)
+				lastCuePresentationKey = ""
 			elseif countdownNumber > 0 then
 				cueBanner.Visible = true
-				cueBanner.Text = tostring(countdownNumber)
-				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-				cueBanner.BackgroundTransparency = 0.22
-				setCueSecondary("", cueSecondary.TextColor3)
+				applyCueBannerPresentation(tostring(countdownNumber), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 			elseif eventCue == "FightStart" then
 				cueBanner.Visible = true
-				cueBanner.Text = ("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT")
-				cueBanner.TextColor3 = Color3.fromRGB(255, 110, 92)
-				cueBanner.BackgroundTransparency = 0.22
-				setCueSecondary("", cueSecondary.TextColor3)
+				applyCueBannerPresentation(
+					("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT"),
+					Color3.fromRGB(255, 110, 92),
+					"",
+					cueSecondary.TextColor3
+				)
 			elseif eventCue == "Winner" and winnerName ~= "" then
 				cueBanner.Visible = true
-				cueBanner.Text = ("%s WINS"):format(winnerName)
-				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-				cueBanner.BackgroundTransparency = 0.22
-				local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
-				local outcomeBannerText = getArenaOutcomeBannerText(roundId)
-				setCueSecondary(outcomeBannerText, getArenaOutcomeBannerColor(roundId))
+				applyCueBannerPresentation(("%s WINS"):format(winnerName), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 			elseif eventCue == "Introductions" then
 				cueBanner.Visible = true
-				cueBanner.Text = "MAIN EVENT"
-				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-				cueBanner.BackgroundTransparency = 0.22
-				setCueSecondary("", cueSecondary.TextColor3)
+				applyCueBannerPresentation("MAIN EVENT", Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 			else
 				cueBanner.Visible = false
 				setCueSecondary("", cueSecondary.TextColor3)
+				lastCuePresentationKey = ""
 			end
 		end
 	end)
@@ -358,6 +545,37 @@ local function getArenaOutcomeBannerColor(currentRoundId: number): Color3
 		return Color3.fromRGB(239, 126, 96)
 	end
 	return Color3.fromRGB(220, 228, 238)
+end
+
+pulseCueBanner = function(scaleFrom: number)
+	cueScale.Scale = scaleFrom
+	local pop = TweenService:Create(cueScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Scale = 1,
+	})
+	pop:Play()
+end
+
+local function applyCueBannerPresentation(primaryText: string, primaryColor: Color3, secondaryText: string, secondaryColor: Color3)
+	local key = table.concat({primaryText, secondaryText}, "::")
+	local isOutcomeFocus = secondaryText ~= "" and (primaryText == "PREDICTION CORRECT" or primaryText == "PREDICTION MISSED")
+
+	cueBanner.Text = primaryText
+	cueBanner.TextColor3 = primaryColor
+	cueBanner.TextSize = if isOutcomeFocus then 26 else 22
+	cueBanner.BackgroundTransparency = if isOutcomeFocus then 0.12 else 0.22
+	cueSecondary.TextSize = if isOutcomeFocus then 14 else 16
+	cueStroke.Color = if primaryText == "PREDICTION CORRECT"
+		then Color3.fromRGB(146, 238, 152)
+		elseif primaryText == "PREDICTION MISSED"
+		then Color3.fromRGB(239, 126, 96)
+		else Color3.fromRGB(255, 188, 84)
+
+	setCueSecondary(secondaryText, secondaryColor)
+
+	if key ~= lastCuePresentationKey then
+		pulseCueBanner(if isOutcomeFocus then 0.91 else 0.96)
+		lastCuePresentationKey = key
+	end
 end
 
 local function getArenaWinnerInfoText(phase: string, lastWinnerName: string, currentWinnerName: string, fighterAName: string, fighterBName: string): string
@@ -451,27 +669,6 @@ local function getChoiceDisplayName(choiceName: string, fallbackName: string): s
 	return trimmed
 end
 
-local function getPredictionStatusText(
-	phase: string,
-	predictionOpen: boolean,
-	alreadyPredicted: boolean
-): (string, Color3)
-	if phase == "Introductions" then
-		return "Prediction Opens Soon", Color3.fromRGB(210, 218, 228)
-	elseif phase == "PredictionWindow" then
-		if alreadyPredicted then
-			return "Prediction Submitted", Color3.fromRGB(144, 242, 152)
-		end
-		if predictionOpen then
-			return "Prediction Open", Color3.fromRGB(236, 208, 118)
-		end
-	elseif phase == "FightActive" then
-		return "Prediction Locked", Color3.fromRGB(232, 199, 110)
-	end
-
-	return "", Color3.fromRGB(220, 228, 238)
-end
-
 local function getPredictionButtonColor(slot: string, variant: string): Color3
 	if slot == "A" then
 		if variant == "selected" then
@@ -525,9 +722,17 @@ local function setPredictionButtonState(
 			stroke.Transparency = 0.24
 		end
 	elseif state == "opens_soon" then
-		button.Text = "Prediction Opens Soon"
+		button.Text = "Prediction Opening Soon"
 		button.BackgroundTransparency = 0.42
 		button.TextColor3 = Color3.fromRGB(225, 232, 241)
+	elseif state == "result_selected" then
+		button.Text = ("Your Pick: %s"):format(displayName)
+		button.BackgroundTransparency = 0.22
+		button.TextColor3 = Color3.fromRGB(250, 239, 204)
+	elseif state == "result" then
+		button.Text = "Next Round Soon"
+		button.BackgroundTransparency = 0.44
+		button.TextColor3 = Color3.fromRGB(218, 226, 236)
 	else
 		button.Text = "Prediction Locked"
 		button.BackgroundTransparency = 0.52
@@ -670,6 +875,7 @@ local function setFighterStatCard(
 	fallbackName: string,
 	style: string,
 	record: string,
+	winChance: number,
 	power: number,
 	speed: number,
 	toughness: number
@@ -677,10 +883,11 @@ local function setFighterStatCard(
 	local displayName = getChoiceDisplayName(choiceName, fallbackName)
 	local displayStyle = style ~= "" and style or "Unknown"
 	local displayRecord = record ~= "" and record or "0-0"
+	local displayWinChance = math.clamp(math.floor(winChance + 0.5), 0, 100)
 	local header = getFighterStatHeaderLabel(card)
 
 	if header then
-		header.Text = ("%s | %s | REC %s"):format(displayName, displayStyle, displayRecord)
+		header.Text = ("%s | %s | REC %s | %d%%"):format(displayName, displayStyle, displayRecord, displayWinChance)
 	end
 	setStatBar(card:FindFirstChild("PowerRow") :: Frame, "Power", power)
 	setStatBar(card:FindFirstChild("SpeedRow") :: Frame, "Speed", speed)
@@ -862,10 +1069,12 @@ local eventSections: {EventSectionDefinition} = {
 			local fighterASpeed = tonumber(arenaState:GetAttribute("FighterASpeed") or 0) or 0
 			local fighterAToughness = tonumber(arenaState:GetAttribute("FighterAToughness") or 0) or 0
 			local fighterARecord = tostring(arenaState:GetAttribute("FighterARecord") or "0-0")
+			local fighterAWinChance = tonumber(arenaState:GetAttribute("FighterAWinChance") or 50) or 50
 			local fighterBPower = tonumber(arenaState:GetAttribute("FighterBPower") or 0) or 0
 			local fighterBSpeed = tonumber(arenaState:GetAttribute("FighterBSpeed") or 0) or 0
 			local fighterBToughness = tonumber(arenaState:GetAttribute("FighterBToughness") or 0) or 0
 			local fighterBRecord = tostring(arenaState:GetAttribute("FighterBRecord") or "0-0")
+			local fighterBWinChance = tonumber(arenaState:GetAttribute("FighterBWinChance") or 50) or 50
 			local winnerName = tostring(arenaState:GetAttribute("LastResult") or "")
 			local currentWinnerName = tostring(arenaState:GetAttribute("WinnerName") or "")
 			local timeRemaining = tonumber(arenaState:GetAttribute("TimeRemaining") or 0) or 0
@@ -889,6 +1098,7 @@ local eventSections: {EventSectionDefinition} = {
 				"Fighter A",
 				fighterAStyle,
 				fighterARecord,
+				fighterAWinChance,
 				fighterAPower,
 				fighterASpeed,
 				fighterAToughness
@@ -899,6 +1109,7 @@ local eventSections: {EventSectionDefinition} = {
 				"Fighter B",
 				fighterBStyle,
 				fighterBRecord,
+				fighterBWinChance,
 				fighterBPower,
 				fighterBSpeed,
 				fighterBToughness
@@ -906,17 +1117,15 @@ local eventSections: {EventSectionDefinition} = {
 			local winnerInfoText = getArenaWinnerInfoText(phase, winnerName, currentWinnerName, fighterAName, fighterBName)
 			winnerLabel.Text = winnerInfoText
 			winnerLabel.TextColor3 = getArenaWinnerInfoColor(phase)
-			local predictionStatusText, predictionStatusColor = getPredictionStatusText(phase, predictionOpen, alreadyPredicted)
-			resultLabel.Text = predictionStatusText
-			resultLabel.TextColor3 = predictionStatusColor
-			resultLabel.Visible = predictionStatusText ~= ""
+			resultLabel.Text = ""
+			resultLabel.Visible = false
 
 			local predictA = views.predictA :: TextButton
 			local predictB = views.predictB :: TextButton
 			local spectate = views.spectate :: TextButton
 			local isFightLocked = phase == "FightActive" or phase == "Result" or predictionLocked
 
-			if phase == "Introductions" then
+			if phase == "Intermission" or phase == "Introductions" then
 				setPredictionButtonState(predictA, "A", fighterAName, "Fighter A", "opens_soon")
 				setPredictionButtonState(predictB, "B", fighterBName, "Fighter B", "opens_soon")
 			elseif predictionOpen and not alreadyPredicted then
@@ -936,6 +1145,21 @@ local eventSections: {EventSectionDefinition} = {
 					fighterBName,
 					"Fighter B",
 					if currentPredictionSlot == "B" then "selected" else "submitted_other"
+				)
+			elseif phase == "Result" then
+				setPredictionButtonState(
+					predictA,
+					"A",
+					fighterAName,
+					"Fighter A",
+					if alreadyPredicted and currentPredictionSlot == "A" then "result_selected" else "result"
+				)
+				setPredictionButtonState(
+					predictB,
+					"B",
+					fighterBName,
+					"Fighter B",
+					if alreadyPredicted and currentPredictionSlot == "B" then "result_selected" else "result"
 				)
 			else
 				setPredictionButtonState(
@@ -1089,35 +1313,28 @@ local function refreshCueBanner()
 	if not shouldShowArenaCueBanner() then
 		cueBanner.Visible = false
 		setCueSecondary("", cueSecondary.TextColor3)
+		lastCuePresentationKey = ""
 	elseif countdownNumber > 0 then
 		cueBanner.Visible = true
-		cueBanner.Text = tostring(countdownNumber)
-		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-		cueBanner.BackgroundTransparency = 0.22
-		setCueSecondary("", cueSecondary.TextColor3)
+		applyCueBannerPresentation(tostring(countdownNumber), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 	elseif eventCue == "FightStart" then
 		cueBanner.Visible = true
-		cueBanner.Text = ("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT")
-		cueBanner.TextColor3 = Color3.fromRGB(255, 110, 92)
-		cueBanner.BackgroundTransparency = 0.22
-		setCueSecondary("", cueSecondary.TextColor3)
+		applyCueBannerPresentation(
+			("%s  |  FIGHT!"):format(eventType == "ArenaDuel" and "ARENA" or "EVENT"),
+			Color3.fromRGB(255, 110, 92),
+			"",
+			cueSecondary.TextColor3
+		)
 	elseif eventCue == "Winner" and winnerName ~= "" then
 		cueBanner.Visible = true
-		cueBanner.Text = ("%s WINS"):format(winnerName)
-		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-		cueBanner.BackgroundTransparency = 0.22
-		local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
-		local outcomeBannerText = getArenaOutcomeBannerText(roundId)
-		setCueSecondary(outcomeBannerText, getArenaOutcomeBannerColor(roundId))
+		applyCueBannerPresentation(("%s WINS"):format(winnerName), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 	elseif eventCue == "Introductions" then
 		cueBanner.Visible = true
-		cueBanner.Text = "MAIN EVENT"
-		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
-		cueBanner.BackgroundTransparency = 0.22
-		setCueSecondary("", cueSecondary.TextColor3)
+		applyCueBannerPresentation("MAIN EVENT", Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
 	else
 		cueBanner.Visible = false
 		setCueSecondary("", cueSecondary.TextColor3)
+		lastCuePresentationKey = ""
 	end
 
 	if cueBanner.Visible then
@@ -1139,6 +1356,7 @@ end
 local function refreshAll()
 	refreshSections()
 	refreshCueBanner()
+	refreshPersonalResultBanner()
 	refreshLocalPredictionMarker()
 end
 
@@ -1228,10 +1446,12 @@ for _, attr in ipairs({
 	"FighterASpeed",
 	"FighterAToughness",
 	"FighterARecord",
+	"FighterAWinChance",
 	"FighterBPower",
 	"FighterBSpeed",
 	"FighterBToughness",
 	"FighterBRecord",
+	"FighterBWinChance",
 	"TimeRemaining",
 	"WinnerName",
 	"LastResult",
