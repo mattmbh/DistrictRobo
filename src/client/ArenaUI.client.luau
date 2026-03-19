@@ -12,7 +12,7 @@ local Constants = require(Shared:WaitForChild("Constants"))
 local Net = require(Shared:WaitForChild("Net"))
 
 local arenaState = ReplicatedStorage:WaitForChild("ArenaState")
-local placeBetRemote = Net.GetRemoteEvent(Constants.Remotes.ArenaPlaceBet)
+local predictWinnerRemote = Net.GetRemoteEvent(Constants.Remotes.ArenaPredictWinner)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "NpcEventHubGui"
@@ -201,13 +201,13 @@ local expandedSections: {[string]: boolean} = {
 }
 
 local sectionViewsById: {[string]: EventSectionViews} = {}
-local betResultToken = 0
+local resultCueToken = 0
 local arenaCueRefreshScheduled = false
 local isHubOpen = false
 local TOGGLE_ACTION = "ToggleNpcEventHub"
 local lastToggleAt = 0
-local localBetMarkerGui: BillboardGui? = nil
-local localBetMarkerTarget: BasePart? = nil
+local localPredictionMarkerGui: BillboardGui? = nil
+local localPredictionMarkerTarget: BasePart? = nil
 
 local function connectButtonClick(button: TextButton, callback: () -> ())
 	button.MouseButton1Click:Connect(callback)
@@ -231,9 +231,11 @@ local function shouldShowArenaCueBanner(): boolean
 	return isNearArena() or isSpectating()
 end
 
+local setCueSecondary: (string, Color3) -> ()
+
 local function showCueBanner(text: string, color: Color3, duration: number)
-	betResultToken += 1
-	local current = betResultToken
+	resultCueToken += 1
+	local current = resultCueToken
 	cueBanner.Text = text
 	cueBanner.TextColor3 = color
 	cueBanner.BackgroundTransparency = 0.24
@@ -250,12 +252,12 @@ local function showCueBanner(text: string, color: Color3, duration: number)
 		BackgroundTransparency = 0.92,
 	})
 	task.delay(duration, function()
-		if current == betResultToken then
+		if current == resultCueToken then
 			fade:Play()
 		end
 	end)
 	task.delay(duration + 0.12, function()
-		if current == betResultToken then
+		if current == resultCueToken then
 			cueBanner.Visible = false
 		end
 	end)
@@ -296,7 +298,7 @@ local function scheduleArenaCueRefresh()
 			elseif eventCue == "Winner" and winnerName ~= "" then
 				cueBanner.Visible = true
 				cueBanner.Text = ("%s WINS"):format(winnerName)
-				cueBanner.TextColor3 = Color3.fromRGB(136, 230, 144)
+				cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 				cueBanner.BackgroundTransparency = 0.22
 				local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
 				local outcomeBannerText = getArenaOutcomeBannerText(roundId)
@@ -322,15 +324,15 @@ local function getArenaOutcomeText(currentRoundId: number): string
 	end
 
 	local outcome = tostring(player:GetAttribute("ArenaOutcome") or "")
-	if outcome == "Won" then
-		return "Bet Won"
-	elseif outcome == "Lost" then
-		return "Bet Lost"
+	if outcome == "Correct" then
+		return "Prediction Correct"
+	elseif outcome == "Missed" then
+		return "Prediction Missed"
 	end
 	return ""
 end
 
-local function setCueSecondary(text: string, color: Color3)
+setCueSecondary = function(text: string, color: Color3)
 	local hasSecondary = text ~= ""
 	cueSecondary.Text = text
 	cueSecondary.TextColor3 = color
@@ -340,19 +342,19 @@ end
 
 local function getArenaOutcomeBannerText(currentRoundId: number): string
 	local outcomeText = getArenaOutcomeText(currentRoundId)
-	if outcomeText == "Bet Won" then
-		return "BET WON"
-	elseif outcomeText == "Bet Lost" then
-		return "BET LOST"
+	if outcomeText == "Prediction Correct" then
+		return "PREDICTION CORRECT"
+	elseif outcomeText == "Prediction Missed" then
+		return "PREDICTION MISSED"
 	end
 	return ""
 end
 
 local function getArenaOutcomeBannerColor(currentRoundId: number): Color3
 	local outcomeText = getArenaOutcomeText(currentRoundId)
-	if outcomeText == "Bet Won" then
+	if outcomeText == "Prediction Correct" then
 		return Color3.fromRGB(144, 242, 152)
-	elseif outcomeText == "Bet Lost" then
+	elseif outcomeText == "Prediction Missed" then
 		return Color3.fromRGB(239, 126, 96)
 	end
 	return Color3.fromRGB(220, 228, 238)
@@ -387,6 +389,21 @@ local function getArenaWinnerInfoColor(phase: string): Color3
 	return Color3.fromRGB(168, 181, 196)
 end
 
+local function getPhaseDisplayText(phase: string): string
+	if phase == "Intermission" then
+		return "Next Round Preparing"
+	elseif phase == "Introductions" then
+		return "Upcoming Fight"
+	elseif phase == "PredictionWindow" then
+		return "Upcoming Fight / Prediction Open"
+	elseif phase == "FightActive" then
+		return "Fight Active / Prediction Locked"
+	elseif phase == "Result" then
+		return "Fight Complete / Result Shown"
+	end
+	return phase
+end
+
 local function makeSectionLabel(parent: Instance, height: number, textSize: number, color: Color3, font: Enum.Font): TextLabel
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, 0, 0, height)
@@ -415,6 +432,14 @@ local function makeActionButton(parent: Instance, text: string, color: Color3): 
 	button.Text = text
 	button.BorderSizePixel = 0
 	button.Parent = parent
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Stroke"
+	stroke.Thickness = 1
+	stroke.Color = Color3.fromRGB(250, 212, 120)
+	stroke.Transparency = 0.9
+	stroke.Parent = button
+
 	return button
 end
 
@@ -426,12 +451,88 @@ local function getChoiceDisplayName(choiceName: string, fallbackName: string): s
 	return trimmed
 end
 
-local function getChoiceButtonLabel(choiceName: string, fallbackName: string, isLocked: boolean): string
-	local displayName = getChoiceDisplayName(choiceName, fallbackName)
-	if isLocked then
-		return ("Locked: %s"):format(displayName)
+local function getPredictionStatusText(
+	phase: string,
+	predictionOpen: boolean,
+	alreadyPredicted: boolean
+): (string, Color3)
+	if phase == "Introductions" then
+		return "Prediction Opens Soon", Color3.fromRGB(210, 218, 228)
+	elseif phase == "PredictionWindow" then
+		if alreadyPredicted then
+			return "Prediction Submitted", Color3.fromRGB(144, 242, 152)
+		end
+		if predictionOpen then
+			return "Prediction Open", Color3.fromRGB(236, 208, 118)
+		end
+	elseif phase == "FightActive" then
+		return "Prediction Locked", Color3.fromRGB(232, 199, 110)
 	end
-	return ("Bet: %s"):format(displayName)
+
+	return "", Color3.fromRGB(220, 228, 238)
+end
+
+local function getPredictionButtonColor(slot: string, variant: string): Color3
+	if slot == "A" then
+		if variant == "selected" then
+			return Color3.fromRGB(186, 88, 88)
+		end
+		return Color3.fromRGB(161, 74, 74)
+	end
+
+	if variant == "selected" then
+		return Color3.fromRGB(82, 124, 196)
+	end
+	return Color3.fromRGB(69, 108, 176)
+end
+
+local function setPredictionButtonState(
+	button: TextButton,
+	slot: string,
+	choiceName: string,
+	fallbackName: string,
+	state: string
+)
+	local stroke = button:FindFirstChild("Stroke") :: UIStroke?
+	local displayName = getChoiceDisplayName(choiceName, fallbackName)
+
+	button.Active = state == "available"
+	button.AutoButtonColor = state == "available"
+	button.BackgroundColor3 = getPredictionButtonColor(slot, if state == "selected" then "selected" else "base")
+	button.TextColor3 = Color3.fromRGB(245, 247, 250)
+	button.BackgroundTransparency = 0
+	if stroke then
+		stroke.Transparency = 0.9
+	end
+
+	if state == "available" then
+		button.Text = ("Predict: %s"):format(displayName)
+	elseif state == "selected" then
+		button.Text = ("Selected: %s"):format(displayName)
+		button.TextColor3 = Color3.fromRGB(255, 242, 205)
+		if stroke then
+			stroke.Transparency = 0.18
+		end
+	elseif state == "submitted_other" then
+		button.Text = "Prediction Submitted"
+		button.BackgroundTransparency = 0.32
+		button.TextColor3 = Color3.fromRGB(227, 233, 241)
+	elseif state == "locked_selected" then
+		button.Text = ("Locked: %s"):format(displayName)
+		button.BackgroundTransparency = 0.14
+		button.TextColor3 = Color3.fromRGB(255, 239, 198)
+		if stroke then
+			stroke.Transparency = 0.24
+		end
+	elseif state == "opens_soon" then
+		button.Text = "Prediction Opens Soon"
+		button.BackgroundTransparency = 0.42
+		button.TextColor3 = Color3.fromRGB(225, 232, 241)
+	else
+		button.Text = "Prediction Locked"
+		button.BackgroundTransparency = 0.52
+		button.TextColor3 = Color3.fromRGB(209, 217, 227)
+	end
 end
 
 local function getStatFillColor(value: number): Color3
@@ -617,9 +718,9 @@ local function buildArenaBody(body: Frame): {[string]: any}
 	sectionSpacer.BackgroundTransparency = 1
 	sectionSpacer.Parent = buttonRow
 
-	local betA = makeActionButton(buttonRow, "Bet A", Color3.fromRGB(161, 74, 74))
-	local betB = makeActionButton(buttonRow, "Bet B", Color3.fromRGB(69, 108, 176))
-	local spectate = makeActionButton(buttonRow, "Spectate Fight", Color3.fromRGB(56, 71, 99))
+	local predictA = makeActionButton(buttonRow, "Predict A", Color3.fromRGB(161, 74, 74))
+	local predictB = makeActionButton(buttonRow, "Predict B", Color3.fromRGB(69, 108, 176))
+	local spectate = makeActionButton(buttonRow, "Watch Fight", Color3.fromRGB(56, 71, 99))
 
 	return {
 		status = status,
@@ -628,8 +729,8 @@ local function buildArenaBody(body: Frame): {[string]: any}
 		fighterBStats = fighterBStats,
 		winner = winner,
 		result = result,
-		betA = betA,
-		betB = betB,
+		predictA = predictA,
+		predictB = predictB,
 		spectate = spectate,
 	}
 end
@@ -667,13 +768,13 @@ local function findArenaFighterPartForSlot(slot: string): BasePart?
 	return nil
 end
 
-local function ensureLocalBetMarker(): BillboardGui
-	if localBetMarkerGui and localBetMarkerGui.Parent then
-		return localBetMarkerGui
+local function ensureLocalPredictionMarker(): BillboardGui
+	if localPredictionMarkerGui and localPredictionMarkerGui.Parent then
+		return localPredictionMarkerGui
 	end
 
 	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "ArenaLocalBetMarker"
+	billboard.Name = "ArenaLocalPredictionMarker"
 	billboard.Size = UDim2.fromOffset(30, 22)
 	billboard.StudsOffsetWorldSpace = Vector3.new(0, 5.85, 0)
 	billboard.AlwaysOnTop = true
@@ -692,39 +793,39 @@ local function ensureLocalBetMarker(): BillboardGui
 	arrow.TextStrokeColor3 = Color3.fromRGB(12, 16, 22)
 	arrow.Parent = billboard
 
-	localBetMarkerGui = billboard
+	localPredictionMarkerGui = billboard
 	return billboard
 end
 
-local function refreshLocalBetMarker()
-	local currentRoundId = tonumber(player:GetAttribute("ArenaBetRoundId") or -1) or -1
-	local currentBetSlot = tostring(player:GetAttribute("ArenaBetSlot") or "")
+local function refreshLocalPredictionMarker()
+	local currentRoundId = tonumber(player:GetAttribute("ArenaPredictionRoundId") or -1) or -1
+	local currentPredictionSlot = tostring(player:GetAttribute("ArenaPredictionSlot") or "")
 	local arenaRoundId = tonumber(arenaState:GetAttribute("RoundId") or -1) or -1
-	local hasActiveBetMarker = currentBetSlot ~= "" and currentRoundId == arenaRoundId
-	local marker = ensureLocalBetMarker()
+	local hasActivePredictionMarker = currentPredictionSlot ~= "" and currentRoundId == arenaRoundId
+	local marker = ensureLocalPredictionMarker()
 
-	if not hasActiveBetMarker then
+	if not hasActivePredictionMarker then
 		marker.Enabled = false
 		marker.Parent = nil
-		localBetMarkerTarget = nil
+		localPredictionMarkerTarget = nil
 		return
 	end
 
-	local targetPart = findArenaFighterPartForSlot(currentBetSlot)
+	local targetPart = findArenaFighterPartForSlot(currentPredictionSlot)
 	if not targetPart then
 		marker.Enabled = false
 		marker.Parent = nil
-		localBetMarkerTarget = nil
+		localPredictionMarkerTarget = nil
 		return
 	end
 
-	if localBetMarkerTarget ~= targetPart then
+	if localPredictionMarkerTarget ~= targetPart then
 		marker.Parent = targetPart
-		localBetMarkerTarget = targetPart
+		localPredictionMarkerTarget = targetPart
 	end
 
 	local arrow = marker:FindFirstChild("Arrow") :: TextLabel
-	if currentBetSlot == "A" then
+	if currentPredictionSlot == "A" then
 		arrow.TextColor3 = FIGHTER_A_HEADER_TEXT
 	else
 		arrow.TextColor3 = FIGHTER_B_HEADER_TEXT
@@ -768,10 +869,11 @@ local eventSections: {EventSectionDefinition} = {
 			local winnerName = tostring(arenaState:GetAttribute("LastResult") or "")
 			local currentWinnerName = tostring(arenaState:GetAttribute("WinnerName") or "")
 			local timeRemaining = tonumber(arenaState:GetAttribute("TimeRemaining") or 0) or 0
-			local bettingOpen = arenaState:GetAttribute("BettingOpen") == true
-			local currentBetRoundId = tonumber(player:GetAttribute("ArenaBetRoundId") or -1) or -1
-			local currentBetSlot = tostring(player:GetAttribute("ArenaBetSlot") or "")
-			local alreadyBet = currentBetRoundId == roundId and currentBetSlot ~= ""
+			local predictionOpen = arenaState:GetAttribute("PredictionOpen") == true
+			local currentPredictionRoundId = tonumber(player:GetAttribute("ArenaPredictionRoundId") or -1) or -1
+			local currentPredictionSlot = tostring(player:GetAttribute("ArenaPredictionSlot") or "")
+			local alreadyPredicted = currentPredictionRoundId == roundId and currentPredictionSlot ~= ""
+			local predictionLocked = player:GetAttribute("ArenaPredictionLocked") == true and currentPredictionRoundId == roundId
 			local statusLabel = views.status :: TextLabel
 			local timerLabel = views.timer :: TextLabel
 			local fighterAStatsCard = views.fighterAStats :: Frame
@@ -779,7 +881,7 @@ local eventSections: {EventSectionDefinition} = {
 			local winnerLabel = views.winner :: TextLabel
 			local resultLabel = views.result :: TextLabel
 
-			setInfoLine(statusLabel, "Status:", phase)
+			setInfoLine(statusLabel, "Status:", getPhaseDisplayText(phase))
 			setInfoLine(timerLabel, "Time Remaining:", ("%ds"):format(math.max(0, math.floor(timeRemaining))))
 			setFighterStatCard(
 				fighterAStatsCard,
@@ -804,23 +906,55 @@ local eventSections: {EventSectionDefinition} = {
 			local winnerInfoText = getArenaWinnerInfoText(phase, winnerName, currentWinnerName, fighterAName, fighterBName)
 			winnerLabel.Text = winnerInfoText
 			winnerLabel.TextColor3 = getArenaWinnerInfoColor(phase)
-			resultLabel.Text = ""
-			resultLabel.Visible = false
+			local predictionStatusText, predictionStatusColor = getPredictionStatusText(phase, predictionOpen, alreadyPredicted)
+			resultLabel.Text = predictionStatusText
+			resultLabel.TextColor3 = predictionStatusColor
+			resultLabel.Visible = predictionStatusText ~= ""
 
-			local betA = views.betA :: TextButton
-			local betB = views.betB :: TextButton
+			local predictA = views.predictA :: TextButton
+			local predictB = views.predictB :: TextButton
 			local spectate = views.spectate :: TextButton
-			local canBet = bettingOpen and not alreadyBet
+			local isFightLocked = phase == "FightActive" or phase == "Result" or predictionLocked
 
-			betA.Active = canBet
-			betB.Active = canBet
-			betA.AutoButtonColor = canBet
-			betB.AutoButtonColor = canBet
-			betA.BackgroundTransparency = if canBet then 0 else 0.45
-			betB.BackgroundTransparency = if canBet then 0 else 0.45
-			betA.Text = getChoiceButtonLabel(fighterAName, "Fighter A", alreadyBet and currentBetSlot == "A")
-			betB.Text = getChoiceButtonLabel(fighterBName, "Fighter B", alreadyBet and currentBetSlot == "B")
-			spectate.Text = if isSpectating() then "Return To Player" else "Spectate Fight"
+			if phase == "Introductions" then
+				setPredictionButtonState(predictA, "A", fighterAName, "Fighter A", "opens_soon")
+				setPredictionButtonState(predictB, "B", fighterBName, "Fighter B", "opens_soon")
+			elseif predictionOpen and not alreadyPredicted then
+				setPredictionButtonState(predictA, "A", fighterAName, "Fighter A", "available")
+				setPredictionButtonState(predictB, "B", fighterBName, "Fighter B", "available")
+			elseif alreadyPredicted and not isFightLocked then
+				setPredictionButtonState(
+					predictA,
+					"A",
+					fighterAName,
+					"Fighter A",
+					if currentPredictionSlot == "A" then "selected" else "submitted_other"
+				)
+				setPredictionButtonState(
+					predictB,
+					"B",
+					fighterBName,
+					"Fighter B",
+					if currentPredictionSlot == "B" then "selected" else "submitted_other"
+				)
+			else
+				setPredictionButtonState(
+					predictA,
+					"A",
+					fighterAName,
+					"Fighter A",
+					if alreadyPredicted and currentPredictionSlot == "A" then "locked_selected" else "locked"
+				)
+				setPredictionButtonState(
+					predictB,
+					"B",
+					fighterBName,
+					"Fighter B",
+					if alreadyPredicted and currentPredictionSlot == "B" then "locked_selected" else "locked"
+				)
+			end
+
+			spectate.Text = if isSpectating() then "Return To Player" else "Watch Fight"
 		end,
 	},
 	{
@@ -835,7 +969,7 @@ local eventSections: {EventSectionDefinition} = {
 		id = "car_chaos",
 		title = "Car Chaos",
 		buildBody = function(body)
-			return buildPlaceholderBody(body, "No car chaos feed active yet. Future vehicle spectacle bets can plug in here.")
+			return buildPlaceholderBody(body, "No car chaos feed active yet. Future vehicle spectacle predictions can plug in here.")
 		end,
 		refresh = function() end,
 	},
@@ -843,7 +977,7 @@ local eventSections: {EventSectionDefinition} = {
 		id = "drone_gauntlet",
 		title = "Drone Gauntlet",
 		buildBody = function(body)
-			return buildPlaceholderBody(body, "No drone gauntlet feed active yet. Future drone-run bets can plug in here.")
+			return buildPlaceholderBody(body, "No drone gauntlet feed active yet. Future drone-run predictions can plug in here.")
 		end,
 		refresh = function() end,
 	},
@@ -970,7 +1104,7 @@ local function refreshCueBanner()
 	elseif eventCue == "Winner" and winnerName ~= "" then
 		cueBanner.Visible = true
 		cueBanner.Text = ("%s WINS"):format(winnerName)
-		cueBanner.TextColor3 = Color3.fromRGB(136, 230, 144)
+		cueBanner.TextColor3 = Color3.fromRGB(255, 212, 122)
 		cueBanner.BackgroundTransparency = 0.22
 		local roundId = tonumber(arenaState:GetAttribute("RoundId") or 0) or 0
 		local outcomeBannerText = getArenaOutcomeBannerText(roundId)
@@ -1005,7 +1139,7 @@ end
 local function refreshAll()
 	refreshSections()
 	refreshCueBanner()
-	refreshLocalBetMarker()
+	refreshLocalPredictionMarker()
 end
 
 local function setHubOpen(open: boolean)
@@ -1031,16 +1165,16 @@ end
 
 local arenaViews = sectionViewsById.arena
 if arenaViews then
-	local arenaBetAButton = arenaViews.betA :: TextButton
-	local arenaBetBButton = arenaViews.betB :: TextButton
+	local arenaPredictAButton = arenaViews.predictA :: TextButton
+	local arenaPredictBButton = arenaViews.predictB :: TextButton
 	local arenaSpectateButton = arenaViews.spectate :: TextButton
 
-	connectButtonClick(arenaBetAButton, function()
-		placeBetRemote:FireServer("A", Constants.Arena.DefaultBetAmount)
+	connectButtonClick(arenaPredictAButton, function()
+		predictWinnerRemote:FireServer("A")
 	end)
 
-	connectButtonClick(arenaBetBButton, function()
-		placeBetRemote:FireServer("B", Constants.Arena.DefaultBetAmount)
+	connectButtonClick(arenaPredictBButton, function()
+		predictWinnerRemote:FireServer("B")
 	end)
 
 	connectButtonClick(arenaSpectateButton, function()
@@ -1101,7 +1235,7 @@ for _, attr in ipairs({
 	"TimeRemaining",
 	"WinnerName",
 	"LastResult",
-	"BettingOpen",
+	"PredictionOpen",
 	"DisplayHeadline",
 	"DisplayDetail",
 	"EventCue",
@@ -1111,7 +1245,7 @@ for _, attr in ipairs({
 	arenaState:GetAttributeChangedSignal(attr):Connect(refreshAll)
 end
 
-for _, attr in ipairs({"ArenaBetRoundId", "ArenaBetSlot", "ArenaOutcome", "ArenaOutcomeRoundId"}) do
+for _, attr in ipairs({"ArenaPredictionRoundId", "ArenaPredictionSlot", "ArenaPredictionLocked", "ArenaPredictionRewardGranted", "ArenaOutcome", "ArenaOutcomeRoundId"}) do
 	player:GetAttributeChangedSignal(attr):Connect(refreshAll)
 end
 

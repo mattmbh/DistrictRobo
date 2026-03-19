@@ -122,12 +122,12 @@ function ArenaDisplayService.Attach(arenaModel: Model)
 			detailText = winnerName
 		elseif status == "" then
 			status = ("%s  |  %ds"):format(phase:upper(), math.max(0, math.floor(timeRemaining)))
-			if phase == "BetWindow" or phase == "FightActive" then
+			if phase == "PredictionWindow" or phase == "FightActive" then
 				detailText = ("%s VS %s"):format(fighterAName, fighterBName)
 			elseif phase == "Result" and winnerName ~= "" then
 				detailText = ("WINNER: %s"):format(winnerName)
 			else
-				detailText = "Next duel loading. Place your bets when the window opens."
+				detailText = "Next duel loading. Preview the matchup when predictions open."
 			end
 		end
 

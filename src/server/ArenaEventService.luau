@@ -5,7 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArenaFighterDefs = require(Shared:WaitForChild("ArenaFighterDefs"))
 local Constants = require(Shared:WaitForChild("Constants"))
 
-local ArenaBetService = require(script.Parent:WaitForChild("ArenaBetService"))
+local ArenaPredictionService = require(script.Parent:WaitForChild("ArenaPredictionService"))
 local ArenaBuildService = require(script.Parent:WaitForChild("ArenaBuildService"))
 local ArenaCombatFX = require(script.Parent:WaitForChild("ArenaCombatFX"))
 local ArenaDisplayService = require(script.Parent:WaitForChild("ArenaDisplayService"))
@@ -136,6 +136,7 @@ local function setPublicChoiceState(prefix: string, definition: {[string]: any})
 		[prefix .. "Power"] = publicProfile.Power,
 		[prefix .. "Speed"] = publicProfile.Speed,
 		[prefix .. "Toughness"] = publicProfile.Toughness,
+		[prefix .. "Aggression"] = publicProfile.Aggression,
 		[prefix .. "Wins"] = publicProfile.Wins,
 		[prefix .. "Losses"] = publicProfile.Losses,
 		[prefix .. "Record"] = publicProfile.Record,
@@ -273,7 +274,7 @@ local function spawnFighter(slot: string, definition: {[string]: any}, combatPro
 	model:SetAttribute("AttackDamage", combatProfile.AttackDamage)
 	model:SetAttribute("AttackCooldown", combatProfile.AttackCooldown)
 	model:SetAttribute("Style", definition.Style)
-	model:SetAttribute("Aggression", definition.Aggression)
+	model:SetAttribute("Aggression", ArenaFighterDefs.GetPublicProfile(definition).Aggression)
 
 	local healthFill = createNameplate(head, definition)
 
@@ -519,7 +520,7 @@ local function setPhase(phase: string, duration: number)
 	updateState({
 		Phase = phase,
 		TimeRemaining = duration,
-		BettingOpen = phase == "BetWindow",
+		PredictionOpen = phase == "PredictionWindow",
 		FightActive = phase == "FightActive",
 		ResultReady = phase == "Result",
 	})
@@ -547,7 +548,7 @@ end
 function ArenaEventService.Initialize()
 	local buildData = ArenaBuildService.GetArenaData()
 	local folder = getReplicatedFolder()
-	ArenaBetService.BindReplicatedState(folder)
+	ArenaPredictionService.BindReplicatedState(folder)
 	ArenaDisplayService.Attach(buildData.arenaModel)
 
 	updateState({
@@ -569,15 +570,22 @@ function ArenaEventService.Initialize()
 		FighterAPower = 0,
 		FighterASpeed = 0,
 		FighterAToughness = 0,
+		FighterAAggression = 0,
 		FighterAWins = 0,
 		FighterALosses = 0,
 		FighterARecord = "0-0",
 		FighterBPower = 0,
 		FighterBSpeed = 0,
 		FighterBToughness = 0,
+		FighterBAggression = 0,
 		FighterBWins = 0,
 		FighterBLosses = 0,
 		FighterBRecord = "0-0",
+		PredictionCountA = 0,
+		PredictionCountB = 0,
+		PlayerPredictionCount = 0,
+		FighterAWinChance = 50,
+		FighterBWinChance = 50,
 	})
 end
 
@@ -590,8 +598,9 @@ function ArenaEventService.Run()
 		destroyCurrentFighters()
 
 		local definitionA, definitionB = ArenaFighterDefs.GetDuelPair(currentRoundId)
-		local combatProfileA = ArenaFighterDefs.GetCombatProfile(definitionA, definitionB, currentRoundId)
-		local combatProfileB = ArenaFighterDefs.GetCombatProfile(definitionB, definitionA, currentRoundId)
+		local matchup = ArenaFighterDefs.BuildMatchup(definitionA, definitionB, currentRoundId)
+		local combatProfileA = matchup.FighterA.CombatProfile
+		local combatProfileB = matchup.FighterB.CombatProfile
 		local buildData = ArenaBuildService.GetArenaData()
 
 		setPublicChoiceState("FighterA", definitionA)
@@ -602,10 +611,12 @@ function ArenaEventService.Run()
 			FighterBName = definitionB.Name,
 			FighterAStyle = definitionA.Style,
 			FighterBStyle = definitionB.Style,
-			FighterAHealth = definitionA.Health,
-			FighterBHealth = definitionB.Health,
-			FighterAHealthCurrent = definitionA.Health,
-			FighterBHealthCurrent = definitionB.Health,
+			FighterAHealth = combatProfileA.MaxHealth,
+			FighterBHealth = combatProfileB.MaxHealth,
+			FighterAHealthCurrent = combatProfileA.MaxHealth,
+			FighterBHealthCurrent = combatProfileB.MaxHealth,
+			FighterAWinChance = math.floor(matchup.FighterA.WinChance * 100 + 0.5),
+			FighterBWinChance = math.floor(matchup.FighterB.WinChance * 100 + 0.5),
 			WinnerName = "",
 			WinnerSlot = "",
 		})
@@ -635,16 +646,16 @@ function ArenaEventService.Run()
 		)
 		tickPhase(phaseDurations.Introductions)
 
-		ArenaBetService.Open(currentRoundId, definitionA.Name, definitionB.Name)
-		setPhase("BetWindow", phaseDurations.BetWindow)
+		ArenaPredictionService.Open(currentRoundId, definitionA.Name, definitionA.Id, definitionB.Name, definitionB.Id)
+		setPhase("PredictionWindow", phaseDurations.PredictionWindow)
 		setPresentation(
-			("PLACE YOUR BETS"),
+			("PREDICT THE WINNER"),
 			("%s [%s]  VS  %s [%s]"):format(definitionA.Name, definitionA.Style, definitionB.Name, definitionB.Style),
-			"BetWindow",
+			"PredictionWindow",
 			0
 		)
-		tickPhase(phaseDurations.BetWindow, true)
-		ArenaBetService.Close()
+		tickPhase(phaseDurations.PredictionWindow, true)
+		ArenaPredictionService.Close()
 
 		armFightersForRound()
 		setPhase("FightActive", phaseDurations.FightActive)
@@ -662,7 +673,7 @@ function ArenaEventService.Run()
 			loserId = definitionA.Id
 		end
 
-		ArenaBetService.Resolve(winningSlot)
+		ArenaPredictionService.Resolve(winningSlot)
 		ArenaFighterDefs.RecordResult(winnerId, loserId)
 		updateState({
 			WinnerSlot = winningSlot or "",

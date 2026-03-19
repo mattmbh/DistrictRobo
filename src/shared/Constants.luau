@@ -12,7 +12,7 @@ Constants.Remotes = {
 	Toast = "Toast",
 	FXEvent = "FXEvent",
 	DroneSnapshot = "DroneSnapshot",
-	ArenaPlaceBet = "ArenaPlaceBet",
+	ArenaPredictWinner = "ArenaPredictWinner",
 }
 
 Constants.Bindables = {
@@ -198,12 +198,23 @@ Constants.Arena = {
 	PhaseDurations = {
 		Intermission = 20,
 		Introductions = 6,
-		BetWindow = 18,
+		PredictionWindow = 18,
 		FightActive = 45,
 		Result = 10,
 	},
-	DefaultBetAmount = 25,
-	MinimumBetAmount = 5,
+	CorrectPredictionReward = 25,
+	PredictionVariance = 0.35,
+	PredictionFavoriteCap = 0.75,
+	PredictionCompression = 0.85,
+	PredictionWeights = {
+		Power = 0.40,
+		Toughness = 0.30,
+		Speed = 0.20,
+		Aggression = 0.10,
+	},
+	UpgradeDiminishingScale = 2.6,
+	UpgradeDiminishingRate = 0.45,
+	RoundPerformanceSwing = 0.055,
 }
 
 Constants.Audio = {
