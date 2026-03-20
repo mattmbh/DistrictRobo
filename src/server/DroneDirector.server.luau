@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared:WaitForChild("Constants"))
 local HeatMath = require(Shared:WaitForChild("HeatMath"))
 local Net = require(Shared:WaitForChild("Net"))
+local TutorialService = require(script.Parent:WaitForChild("TutorialService"))
 
 local runtimeFolder = ServerScriptService:WaitForChild("ServerRuntime")
 local addHeatBindable = runtimeFolder:WaitForChild(Constants.Bindables.AddHeat) :: BindableEvent
@@ -724,6 +725,7 @@ local function disableDrone(droneState: DroneState, player: Player, duration: nu
 	if droneState.hp <= 0 then
 		eliminateDrone(droneState, "emp_destroyed")
 		spawnPickup(dronePosition)
+		TutorialService.MarkDroneDestroyed(player)
 		return
 	end
 

@@ -9,6 +9,7 @@ local ArenaPredictionService = require(script.Parent:WaitForChild("ArenaPredicti
 local ArenaBuildService = require(script.Parent:WaitForChild("ArenaBuildService"))
 local ArenaCombatFX = require(script.Parent:WaitForChild("ArenaCombatFX"))
 local ArenaDisplayService = require(script.Parent:WaitForChild("ArenaDisplayService"))
+local ArenaFighterUpgradeService = require(script.Parent:WaitForChild("ArenaFighterUpgradeService"))
 
 local ArenaEventService = {}
 
@@ -44,6 +45,8 @@ local replicatedFolder: Folder? = nil
 local runtimeFolder: Folder? = nil
 local currentRoundId = 0
 local currentFighters: {FighterState} = {}
+local currentDefinitionA: {[string]: any}? = nil
+local currentDefinitionB: {[string]: any}? = nil
 
 local function ensureFolder(parent: Instance, name: string): Folder
 	local existing = parent:FindFirstChild(name)
@@ -140,7 +143,54 @@ local function setPublicChoiceState(prefix: string, definition: {[string]: any})
 		[prefix .. "Wins"] = publicProfile.Wins,
 		[prefix .. "Losses"] = publicProfile.Losses,
 		[prefix .. "Record"] = publicProfile.Record,
+		[prefix .. "Id"] = publicProfile.Id,
+		[prefix .. "PowerUpgradeLevel"] = ArenaFighterUpgradeService.GetSharedUpgradeLevel(publicProfile.Id, Constants.Arena.UpgradeStatKey),
+		[prefix .. "PowerUpgradeCost"] = ArenaFighterUpgradeService.GetUpgradeCost(publicProfile.Id, Constants.Arena.UpgradeStatKey),
 	})
+end
+
+local function refreshCurrentMatchupState(): {[string]: any}?
+	if not currentDefinitionA or not currentDefinitionB or currentRoundId <= 0 then
+		return nil
+	end
+
+	local rosterDefinitionA = ArenaFighterDefs.GetRosterEntryById(currentDefinitionA.Id)
+	local rosterDefinitionB = ArenaFighterDefs.GetRosterEntryById(currentDefinitionB.Id)
+	if rosterDefinitionA then
+		currentDefinitionA = table.clone(rosterDefinitionA)
+	end
+	if rosterDefinitionB then
+		currentDefinitionB = table.clone(rosterDefinitionB)
+	end
+
+	local matchup = ArenaFighterDefs.BuildMatchup(currentDefinitionA, currentDefinitionB, currentRoundId)
+	local combatProfileA = matchup.FighterA.CombatProfile
+	local combatProfileB = matchup.FighterB.CombatProfile
+
+	setPublicChoiceState("FighterA", currentDefinitionA)
+	setPublicChoiceState("FighterB", currentDefinitionB)
+	updateState({
+		RoundId = currentRoundId,
+		FighterAName = currentDefinitionA.Name,
+		FighterBName = currentDefinitionB.Name,
+		FighterAStyle = currentDefinitionA.Style,
+		FighterBStyle = currentDefinitionB.Style,
+		FighterAHealth = combatProfileA.MaxHealth,
+		FighterBHealth = combatProfileB.MaxHealth,
+		FighterAWinChance = math.floor(matchup.FighterA.WinChance * 100 + 0.5),
+		FighterBWinChance = math.floor(matchup.FighterB.WinChance * 100 + 0.5),
+	})
+
+	if #currentFighters >= 2 then
+		local fighterA = currentFighters[1]
+		local fighterB = currentFighters[2]
+		if fighterA and fighterB then
+			fighterA.combatProfile = combatProfileA
+			fighterB.combatProfile = combatProfileB
+		end
+	end
+
+	return matchup
 end
 
 local function createNameplate(head: BasePart, definition: {[string]: any}): Frame
@@ -550,6 +600,9 @@ function ArenaEventService.Initialize()
 	local folder = getReplicatedFolder()
 	ArenaPredictionService.BindReplicatedState(folder)
 	ArenaDisplayService.Attach(buildData.arenaModel)
+	ArenaFighterUpgradeService.SetRefreshCallback(function()
+		refreshCurrentMatchupState()
+	end)
 
 	updateState({
 		ArenaReady = true,
@@ -574,6 +627,9 @@ function ArenaEventService.Initialize()
 		FighterAWins = 0,
 		FighterALosses = 0,
 		FighterARecord = "0-0",
+		FighterAId = "",
+		FighterAPowerUpgradeLevel = 0,
+		FighterAPowerUpgradeCost = 0,
 		FighterBPower = 0,
 		FighterBSpeed = 0,
 		FighterBToughness = 0,
@@ -581,6 +637,9 @@ function ArenaEventService.Initialize()
 		FighterBWins = 0,
 		FighterBLosses = 0,
 		FighterBRecord = "0-0",
+		FighterBId = "",
+		FighterBPowerUpgradeLevel = 0,
+		FighterBPowerUpgradeCost = 0,
 		PredictionCountA = 0,
 		PredictionCountB = 0,
 		PlayerPredictionCount = 0,
@@ -596,27 +655,23 @@ function ArenaEventService.Run()
 	while true do
 		currentRoundId += 1
 		destroyCurrentFighters()
+		updateState({
+			RoundId = currentRoundId,
+		})
 
 		local definitionA, definitionB = ArenaFighterDefs.GetDuelPair(currentRoundId)
-		local matchup = ArenaFighterDefs.BuildMatchup(definitionA, definitionB, currentRoundId)
+		currentDefinitionA = definitionA
+		currentDefinitionB = definitionB
+		local matchup = refreshCurrentMatchupState()
+		assert(matchup, "[ArenaEvent] Failed to build arena matchup")
 		local combatProfileA = matchup.FighterA.CombatProfile
 		local combatProfileB = matchup.FighterB.CombatProfile
 		local buildData = ArenaBuildService.GetArenaData()
-
-		setPublicChoiceState("FighterA", definitionA)
-		setPublicChoiceState("FighterB", definitionB)
 		updateState({
-			RoundId = currentRoundId,
-			FighterAName = definitionA.Name,
-			FighterBName = definitionB.Name,
-			FighterAStyle = definitionA.Style,
-			FighterBStyle = definitionB.Style,
 			FighterAHealth = combatProfileA.MaxHealth,
 			FighterBHealth = combatProfileB.MaxHealth,
 			FighterAHealthCurrent = combatProfileA.MaxHealth,
 			FighterBHealthCurrent = combatProfileB.MaxHealth,
-			FighterAWinChance = math.floor(matchup.FighterA.WinChance * 100 + 0.5),
-			FighterBWinChance = math.floor(matchup.FighterB.WinChance * 100 + 0.5),
 			WinnerName = "",
 			WinnerSlot = "",
 		})

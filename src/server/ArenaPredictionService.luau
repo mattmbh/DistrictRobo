@@ -5,6 +5,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared:WaitForChild("Constants"))
 local Net = require(Shared:WaitForChild("Net"))
 
+local PlayerRewardUpgradeService = require(script.Parent:WaitForChild("PlayerRewardUpgradeService"))
+local TutorialService = require(script.Parent:WaitForChild("TutorialService"))
+
 local ArenaPredictionService = {}
 
 type PredictionRecord = {
@@ -62,6 +65,7 @@ local function setPlayerPredictionState(player: Player, roundId: number, slot: s
 	player:SetAttribute("ArenaPredictionRewardGranted", rewardGranted)
 	player:SetAttribute("ArenaOutcomeRoundId", -1)
 	player:SetAttribute("ArenaOutcome", "")
+	player:SetAttribute("ArenaOutcomeReward", 0)
 end
 
 local function clearPlayerPredictionState(player: Player, roundId: number)
@@ -72,6 +76,7 @@ local function clearPlayerPredictionState(player: Player, roundId: number)
 	player:SetAttribute("ArenaPredictionRewardGranted", false)
 	player:SetAttribute("ArenaOutcomeRoundId", -1)
 	player:SetAttribute("ArenaOutcome", "")
+	player:SetAttribute("ArenaOutcomeReward", 0)
 end
 
 local function refreshPredictionTotals()
@@ -152,22 +157,19 @@ function ArenaPredictionService.Resolve(winningSlot: string?)
 			prediction.player:SetAttribute("ArenaOutcomeRoundId", currentRoundId)
 			if prediction.slot == winningSlot then
 				local credits = ensureCreditsValue(prediction.player)
-				credits.Value += Constants.Arena.CorrectPredictionReward
+				local multiplier = PlayerRewardUpgradeService.GetRewardMultiplier(prediction.player)
+				local reward = math.max(1, math.floor(Constants.Arena.CorrectPredictionReward * multiplier + 0.5))
+				credits.Value += reward
 				prediction.rewardGranted = true
 				prediction.player:SetAttribute("ArenaPredictionRewardGranted", true)
 				prediction.player:SetAttribute("ArenaOutcome", "Correct")
-				toastRemote:FireClient(
-					prediction.player,
-					("Prediction correct: +%d credits on %s"):format(
-						Constants.Arena.CorrectPredictionReward,
-						if winningSlot == "A" then currentFighters.A.Name else currentFighters.B.Name
-					)
-				)
+				prediction.player:SetAttribute("ArenaOutcomeReward", reward)
 				rewarded += 1
 			else
 				prediction.rewardGranted = false
 				prediction.player:SetAttribute("ArenaPredictionRewardGranted", false)
 				prediction.player:SetAttribute("ArenaOutcome", "Missed")
+				prediction.player:SetAttribute("ArenaOutcomeReward", 0)
 			end
 		end
 	end
@@ -202,6 +204,7 @@ predictWinnerRemote.OnServerEvent:Connect(function(player: Player, fighterSlot: 
 		player = player,
 	}
 	setPlayerPredictionState(player, currentRoundId, fighterSlot, fighterState.Id, false, false)
+	TutorialService.MarkPredictionMade(player)
 
 	refreshPredictionTotals()
 	toastRemote:FireClient(player, ("Prediction locked in: %s"):format(fighterState.Name))
@@ -214,6 +217,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 Players.PlayerAdded:Connect(function(player)
+	PlayerRewardUpgradeService.InitializePlayer(player)
 	clearPlayerPredictionState(player, currentRoundId)
 end)
 

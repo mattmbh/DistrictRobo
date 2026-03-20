@@ -34,17 +34,6 @@ playerGui:SetAttribute("ArenaSpectating", false)
 
 local refresh: () -> ()
 
-local function isNearArena(): boolean
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local arenaPosition = arenaState:GetAttribute("ArenaPosition")
-	if not (root and root:IsA("BasePart") and typeof(arenaPosition) == "Vector3") then
-		return false
-	end
-
-	return (root.Position - arenaPosition).Magnitude <= Constants.Arena.SpectateDistance
-end
-
 local function stopSpectating()
 	watching = false
 	playerGui:SetAttribute("ArenaSpectating", false)
@@ -97,7 +86,7 @@ refresh = function()
 	local phase = tostring(arenaState:GetAttribute("Phase") or "")
 	local active = arenaState:GetAttribute("IsArenaActive") == true
 	local canWatchPhase = phase == "Introductions" or phase == "PredictionWindow" or phase == "FightActive"
-	local canWatch = active and canWatchPhase and isNearArena()
+	local canWatch = active and canWatchPhase
 	button.Visible = canWatch or watching
 	if not canWatch and watching then
 		stopSpectating()
@@ -123,7 +112,7 @@ end)
 
 playerGui:GetAttributeChangedSignal("ArenaSpectateRequested"):Connect(handleSpectateRequest)
 
-for _, attr in ipairs({"Phase", "IsArenaActive", "ArenaPosition", "CameraAnchorPosition", "FightCenter"}) do
+for _, attr in ipairs({"Phase", "IsArenaActive", "CameraAnchorPosition", "FightCenter"}) do
 	arenaState:GetAttributeChangedSignal(attr):Connect(refresh)
 end
 

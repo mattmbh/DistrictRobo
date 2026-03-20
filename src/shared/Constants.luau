@@ -13,6 +13,9 @@ Constants.Remotes = {
 	FXEvent = "FXEvent",
 	DroneSnapshot = "DroneSnapshot",
 	ArenaPredictWinner = "ArenaPredictWinner",
+	ArenaUpgradeFighter = "ArenaUpgradeFighter",
+	ArenaUpgradeRewardMultiplier = "ArenaUpgradeRewardMultiplier",
+	TutorialAction = "TutorialAction",
 }
 
 Constants.Bindables = {
@@ -212,6 +215,13 @@ Constants.Arena = {
 		Speed = 0.20,
 		Aggression = 0.10,
 	},
+	UpgradeStatKey = "Power",
+	UpgradeMaterialName = "Materials",
+	PowerUpgradeBaseBonus = 0.6,
+	PowerUpgradeCostByLevel = {25, 40, 60, 85, 115, 150},
+	PowerUpgradeCostGrowth = 1.28,
+	RewardMultiplierByLevel = {1.05, 1.10, 1.20, 1.35, 1.50},
+	RewardUpgradeCostByLevel = {1, 5, 15, 30, 60},
 	UpgradeDiminishingScale = 2.6,
 	UpgradeDiminishingRate = 0.45,
 	RoundPerformanceSwing = 0.055,

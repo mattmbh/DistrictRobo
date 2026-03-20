@@ -7,9 +7,12 @@ local ok, err = pcall(function()
 
 	local Shared = ReplicatedStorage:WaitForChild("Shared")
 	local Constants = require(Shared:WaitForChild("Constants"))
+	local Net = require(Shared:WaitForChild("Net"))
 
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
+	local arenaState = ReplicatedStorage:WaitForChild("ArenaState")
+	local droneSnapshotRemote = Net.GetRemoteEvent(Constants.Remotes.DroneSnapshot)
 	_G.__CityMapLoaded = true
 
 	local ZOOM_MIN = 0.75
@@ -17,11 +20,13 @@ local ok, err = pcall(function()
 	local ZOOM_STEP = 0.08
 	local TOGGLE_ACTION = "ToggleCityMap"
 
-	local TILE_SAFE_COLOR = Color3.fromRGB(82, 110, 92)
-	local TILE_DANGER_COLOR = Color3.fromRGB(108, 70, 72)
-	local TILE_TEXT_COLOR = Color3.fromRGB(194, 203, 214)
-	local BORDER_COLOR = Color3.fromRGB(116, 132, 152)
-	local MARKER_COLOR = Color3.fromRGB(205, 220, 232)
+	local TILE_SAFE_COLOR = Color3.fromRGB(69, 94, 82)
+	local TILE_DANGER_COLOR = Color3.fromRGB(112, 64, 66)
+	local TILE_TEXT_COLOR = Color3.fromRGB(214, 221, 232)
+	local BORDER_COLOR = Color3.fromRGB(233, 184, 91)
+	local MARKER_COLOR = Color3.fromRGB(239, 245, 252)
+	local DRONE_MARKER_COLOR = Color3.fromRGB(111, 227, 244)
+	local ARENA_MARKER_COLOR = Color3.fromRGB(255, 212, 122)
 
 	local worldBounds = {
 		minX = -560,
@@ -32,6 +37,8 @@ local ok, err = pcall(function()
 	local splitX = 0
 	local lastSplitLogKey = ""
 	local splitFallbackWarned = false
+	local droneDotsById: {[number]: Frame} = {}
+	local dronePositions: {[number]: {position: Vector3, lastSeen: number}} = {}
 
 	local currentZoom = 1
 	local panOffset = Vector2.zero
@@ -50,9 +57,15 @@ local ok, err = pcall(function()
 	mapFrame.Size = UDim2.fromOffset(680, 540)
 	mapFrame.Position = UDim2.fromScale(0.5, 0.5)
 	mapFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	mapFrame.BackgroundColor3 = Color3.fromRGB(31, 36, 42)
+	mapFrame.BackgroundColor3 = Color3.fromRGB(12, 16, 24)
+	mapFrame.BackgroundTransparency = 0.08
 	mapFrame.BorderSizePixel = 0
 	mapFrame.Parent = gui
+
+	local mapStroke = Instance.new("UIStroke")
+	mapStroke.Thickness = 2
+	mapStroke.Color = BORDER_COLOR
+	mapStroke.Parent = mapFrame
 
 	local mapTitle = Instance.new("TextLabel")
 	mapTitle.Name = "Title"
@@ -60,20 +73,38 @@ local ok, err = pcall(function()
 	mapTitle.Position = UDim2.fromOffset(12, 8)
 	mapTitle.BackgroundTransparency = 1
 	mapTitle.TextXAlignment = Enum.TextXAlignment.Left
-	mapTitle.Font = Enum.Font.GothamBold
-	mapTitle.TextSize = 22
-	mapTitle.TextColor3 = Color3.fromRGB(220, 226, 238)
+	mapTitle.Font = Enum.Font.GothamBlack
+	mapTitle.TextSize = 24
+	mapTitle.TextColor3 = ARENA_MARKER_COLOR
 	mapTitle.Text = "CITY MAP"
 	mapTitle.Parent = mapFrame
 
+	local mapSubtitle = Instance.new("TextLabel")
+	mapSubtitle.Name = "Subtitle"
+	mapSubtitle.Size = UDim2.new(1, -24, 0, 16)
+	mapSubtitle.Position = UDim2.fromOffset(12, 34)
+	mapSubtitle.BackgroundTransparency = 1
+	mapSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+	mapSubtitle.Font = Enum.Font.GothamSemibold
+	mapSubtitle.TextSize = 12
+	mapSubtitle.TextColor3 = Color3.fromRGB(190, 202, 216)
+	mapSubtitle.Text = "Track districts, arena activity, and live drones."
+	mapSubtitle.Parent = mapFrame
+
 	local mapViewport = Instance.new("Frame")
 	mapViewport.Name = "MapViewport"
-	mapViewport.Size = UDim2.new(1, -24, 1, -120)
-	mapViewport.Position = UDim2.fromOffset(12, 48)
-	mapViewport.BackgroundColor3 = Color3.fromRGB(21, 24, 29)
+	mapViewport.Size = UDim2.new(1, -24, 1, -128)
+	mapViewport.Position = UDim2.fromOffset(12, 58)
+	mapViewport.BackgroundColor3 = Color3.fromRGB(17, 21, 30)
 	mapViewport.BorderSizePixel = 0
 	mapViewport.ClipsDescendants = true
 	mapViewport.Parent = mapFrame
+
+	local viewportStroke = Instance.new("UIStroke")
+	viewportStroke.Thickness = 1
+	viewportStroke.Color = Color3.fromRGB(95, 76, 42)
+	viewportStroke.Transparency = 0.15
+	viewportStroke.Parent = mapViewport
 
 	local mapCanvas = Instance.new("Frame")
 	mapCanvas.Name = "MapCanvas"
@@ -92,6 +123,13 @@ local ok, err = pcall(function()
 	districtGrid.BackgroundTransparency = 1
 	districtGrid.BorderSizePixel = 0
 	districtGrid.Parent = mapCanvas
+
+	local markerLayer = Instance.new("Frame")
+	markerLayer.Name = "MarkerLayer"
+	markerLayer.Size = UDim2.fromScale(1, 1)
+	markerLayer.BackgroundTransparency = 1
+	markerLayer.BorderSizePixel = 0
+	markerLayer.Parent = mapCanvas
 
 	local safeTile = Instance.new("Frame")
 	safeTile.Name = "SAFE"
@@ -143,23 +181,64 @@ local ok, err = pcall(function()
 
 	local playerMarker = Instance.new("Frame")
 	playerMarker.Name = "PlayerMarker"
-	playerMarker.Size = UDim2.fromOffset(10, 10)
+	playerMarker.Size = UDim2.fromOffset(12, 12)
 	playerMarker.AnchorPoint = Vector2.new(0.5, 0.5)
 	playerMarker.BackgroundColor3 = MARKER_COLOR
 	playerMarker.BorderSizePixel = 0
-	playerMarker.Parent = mapCanvas
+	playerMarker.Parent = markerLayer
 
 	local markerCorner = Instance.new("UICorner")
 	markerCorner.CornerRadius = UDim.new(1, 0)
 	markerCorner.Parent = playerMarker
 
+	local playerMarkerStroke = Instance.new("UIStroke")
+	playerMarkerStroke.Thickness = 1
+	playerMarkerStroke.Color = Color3.fromRGB(22, 26, 32)
+	playerMarkerStroke.Parent = playerMarker
+
+	local arenaMarker = Instance.new("Frame")
+	arenaMarker.Name = "ArenaMarker"
+	arenaMarker.Size = UDim2.fromOffset(10, 10)
+	arenaMarker.AnchorPoint = Vector2.new(0.5, 0.5)
+	arenaMarker.BackgroundColor3 = ARENA_MARKER_COLOR
+	arenaMarker.BorderSizePixel = 0
+	arenaMarker.Parent = markerLayer
+
+	local arenaCorner = Instance.new("UICorner")
+	arenaCorner.CornerRadius = UDim.new(1, 0)
+	arenaCorner.Parent = arenaMarker
+
+	local arenaStroke = Instance.new("UIStroke")
+	arenaStroke.Thickness = 2
+	arenaStroke.Color = Color3.fromRGB(60, 44, 16)
+	arenaStroke.Parent = arenaMarker
+
+	local arenaLabel = Instance.new("TextLabel")
+	arenaLabel.Name = "ArenaLabel"
+	arenaLabel.AnchorPoint = Vector2.new(0.5, 1)
+	arenaLabel.Position = UDim2.new(0.5, 0, 0, -4)
+	arenaLabel.Size = UDim2.fromOffset(54, 14)
+	arenaLabel.BackgroundTransparency = 1
+	arenaLabel.Font = Enum.Font.GothamBold
+	arenaLabel.TextSize = 11
+	arenaLabel.TextColor3 = ARENA_MARKER_COLOR
+	arenaLabel.Text = "Arena"
+	arenaLabel.Parent = arenaMarker
+
 	local districtInfo = Instance.new("Frame")
 	districtInfo.Name = "DistrictInfo"
-	districtInfo.Size = UDim2.new(1, -24, 0, 48)
+	districtInfo.Size = UDim2.new(1, -24, 0, 52)
 	districtInfo.Position = UDim2.new(0, 12, 1, -58)
-	districtInfo.BackgroundColor3 = Color3.fromRGB(26, 29, 35)
+	districtInfo.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+	districtInfo.BackgroundTransparency = 0.08
 	districtInfo.BorderSizePixel = 0
 	districtInfo.Parent = mapFrame
+
+	local districtInfoStroke = Instance.new("UIStroke")
+	districtInfoStroke.Thickness = 1
+	districtInfoStroke.Color = Color3.fromRGB(95, 76, 42)
+	districtInfoStroke.Transparency = 0.1
+	districtInfoStroke.Parent = districtInfo
 
 	local districtNameLabel = Instance.new("TextLabel")
 	districtNameLabel.Name = "DistrictName"
@@ -167,9 +246,9 @@ local ok, err = pcall(function()
 	districtNameLabel.Position = UDim2.fromOffset(8, 0)
 	districtNameLabel.BackgroundTransparency = 1
 	districtNameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	districtNameLabel.Font = Enum.Font.GothamSemibold
+	districtNameLabel.Font = Enum.Font.GothamBold
 	districtNameLabel.TextSize = 16
-	districtNameLabel.TextColor3 = Color3.fromRGB(230, 235, 242)
+	districtNameLabel.TextColor3 = Color3.fromRGB(236, 242, 248)
 	districtNameLabel.Text = "District: SAFE"
 	districtNameLabel.Parent = districtInfo
 
@@ -179,8 +258,8 @@ local ok, err = pcall(function()
 	districtHeatLabel.Position = UDim2.new(0.46, 0, 0, 0)
 	districtHeatLabel.BackgroundTransparency = 1
 	districtHeatLabel.TextXAlignment = Enum.TextXAlignment.Left
-	districtHeatLabel.Font = Enum.Font.GothamSemibold
-	districtHeatLabel.TextSize = 16
+	districtHeatLabel.Font = Enum.Font.GothamBold
+	districtHeatLabel.TextSize = 15
 	districtHeatLabel.TextColor3 = Color3.fromRGB(220, 226, 238)
 	districtHeatLabel.Text = "Drones: 0"
 	districtHeatLabel.Parent = districtInfo
@@ -191,8 +270,8 @@ local ok, err = pcall(function()
 	districtThreatLabel.Position = UDim2.new(0.73, 0, 0, 0)
 	districtThreatLabel.BackgroundTransparency = 1
 	districtThreatLabel.TextXAlignment = Enum.TextXAlignment.Right
-	districtThreatLabel.Font = Enum.Font.GothamSemibold
-	districtThreatLabel.TextSize = 16
+	districtThreatLabel.Font = Enum.Font.GothamBold
+	districtThreatLabel.TextSize = 15
 	districtThreatLabel.TextColor3 = Color3.fromRGB(220, 226, 238)
 	districtThreatLabel.Text = "Threat: --"
 	districtThreatLabel.Parent = districtInfo
@@ -319,13 +398,7 @@ local ok, err = pcall(function()
 		districtThreatLabel.Text = ("Threat: %s"):format(threat == nil and "--" or tostring(threat))
 	end
 
-	local function updateMarker()
-		local character = player.Character
-		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-		if not (rootPart and rootPart:IsA("BasePart")) then
-			playerMarker.Visible = false
-			return
-		end
+	local function worldToMarkerOffset(worldPosition: Vector3): Vector2
 		updateTileLayout()
 
 		local xMin = worldBounds.minX
@@ -337,17 +410,89 @@ local ok, err = pcall(function()
 		local rightX = halfW
 		local markerX = 0
 
-		if rootPart.Position.X < splitX then
-			local alphaLeft = math.clamp((rootPart.Position.X - xMin) / math.max(1, splitX - xMin), 0, 1)
+		if worldPosition.X < splitX then
+			local alphaLeft = math.clamp((worldPosition.X - xMin) / math.max(1, splitX - xMin), 0, 1)
 			markerX = leftX + (alphaLeft * halfW)
 		else
-			local alphaRight = math.clamp((rootPart.Position.X - splitX) / math.max(1, xMax - splitX), 0, 1)
+			local alphaRight = math.clamp((worldPosition.X - splitX) / math.max(1, xMax - splitX), 0, 1)
 			markerX = rightX + (alphaRight * halfW)
 		end
-		local alphaZ = math.clamp((rootPart.Position.Z - zMin) / math.max(1, zMax - zMin), 0, 1)
+		local alphaZ = math.clamp((worldPosition.Z - zMin) / math.max(1, zMax - zMin), 0, 1)
 		local markerY = alphaZ * districtGrid.AbsoluteSize.Y
-		playerMarker.Position = UDim2.fromOffset(markerX, markerY)
+		return Vector2.new(markerX, markerY)
+	end
+
+	local function updateMarker()
+		local character = player.Character
+		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+		if not (rootPart and rootPart:IsA("BasePart")) then
+			playerMarker.Visible = false
+			return
+		end
+
+		local markerPosition = worldToMarkerOffset(rootPart.Position)
+		playerMarker.Position = UDim2.fromOffset(markerPosition.X, markerPosition.Y)
 		playerMarker.Visible = true
+	end
+
+	local function updateArenaMarker()
+		local arenaPosition = arenaState:GetAttribute("ArenaPosition")
+		if typeof(arenaPosition) ~= "Vector3" then
+			arenaMarker.Visible = false
+			return
+		end
+
+		local markerPosition = worldToMarkerOffset(arenaPosition)
+		arenaMarker.Position = UDim2.fromOffset(markerPosition.X, markerPosition.Y)
+		arenaMarker.Visible = true
+	end
+
+	local function getOrCreateDroneDot(droneId: number): Frame
+		local existing = droneDotsById[droneId]
+		if existing and existing.Parent then
+			return existing
+		end
+
+		local dot = Instance.new("Frame")
+		dot.Name = ("Drone_%d"):format(droneId)
+		dot.Size = UDim2.fromOffset(6, 6)
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.BackgroundColor3 = DRONE_MARKER_COLOR
+		dot.BorderSizePixel = 0
+		dot.Parent = markerLayer
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = dot
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 1
+		stroke.Color = Color3.fromRGB(12, 18, 24)
+		stroke.Transparency = 0.2
+		stroke.Parent = dot
+
+		droneDotsById[droneId] = dot
+		return dot
+	end
+
+	local function updateDroneDots()
+		local now = Workspace:GetServerTimeNow()
+		for droneId, dot in pairs(droneDotsById) do
+			local state = dronePositions[droneId]
+			if not state or (now - state.lastSeen) > 2 then
+				dot:Destroy()
+				droneDotsById[droneId] = nil
+			end
+		end
+
+		for droneId, state in pairs(dronePositions) do
+			if (now - state.lastSeen) <= 2 then
+				local dot = getOrCreateDroneDot(droneId)
+				local markerPosition = worldToMarkerOffset(state.position)
+				dot.Position = UDim2.fromOffset(markerPosition.X, markerPosition.Y)
+				dot.Visible = true
+			end
+		end
 	end
 
 	local function applyViewTransform(logZoom: boolean)
@@ -372,8 +517,38 @@ local ok, err = pcall(function()
 		readDangerState()
 		updateDistrictInfo()
 		updateMarker()
+		updateArenaMarker()
+		updateDroneDots()
 		print("[CityMap] tiles built: 2")
 	end
+
+	droneSnapshotRemote.OnClientEvent:Connect(function(payload)
+		if typeof(payload) ~= "table" then
+			return
+		end
+
+		local snapshot = payload.drones
+		if typeof(snapshot) ~= "table" then
+			return
+		end
+
+		local now = Workspace:GetServerTimeNow()
+		for _, droneData in ipairs(snapshot) do
+			if typeof(droneData) == "table"
+				and typeof(droneData.id) == "number"
+				and typeof(droneData.cf) == "CFrame"
+			then
+				dronePositions[droneData.id] = {
+					position = droneData.cf.Position,
+					lastSeen = now,
+				}
+			end
+		end
+
+		if gui.Enabled then
+			updateDroneDots()
+		end
+	end)
 
 	local function isPointInsideMapViewport(screenPos: Vector3): boolean
 		local absPos = mapViewport.AbsolutePosition
@@ -458,6 +633,11 @@ local ok, err = pcall(function()
 	player:GetAttributeChangedSignal("DistrictId"):Connect(updateDistrictInfo)
 	player:GetAttributeChangedSignal("DistrictHeatLevel"):Connect(updateDistrictInfo)
 	player:GetAttributeChangedSignal("ThreatLevel"):Connect(updateDistrictInfo)
+	arenaState:GetAttributeChangedSignal("ArenaPosition"):Connect(function()
+		if gui.Enabled then
+			updateArenaMarker()
+		end
+	end)
 
 	local worldFolderRef = Workspace:FindFirstChild("World")
 	if worldFolderRef and worldFolderRef:IsA("Folder") then
@@ -480,6 +660,8 @@ local ok, err = pcall(function()
 				readDangerState()
 				updateDistrictInfo()
 				updateMarker()
+				updateArenaMarker()
+				updateDroneDots()
 			end
 		end
 	end)

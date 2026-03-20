@@ -19,6 +19,10 @@ type FighterDefinition = {
 	UpgradeToughnessBonus: number,
 	UpgradeSpeedBonus: number,
 	UpgradeAggressionBonus: number,
+	SharedUpgradeLevelPower: number,
+	SharedUpgradeLevelToughness: number,
+	SharedUpgradeLevelSpeed: number,
+	SharedUpgradeLevelAggression: number,
 	UpgradeHooks: {[string]: any},
 	UpgradeCosts: {[string]: {[string]: number}},
 	Wins: number,
@@ -51,6 +55,10 @@ ArenaFighterDefs.Roster = {
 		UpgradeToughnessBonus = 0,
 		UpgradeSpeedBonus = 0,
 		UpgradeAggressionBonus = 0,
+		SharedUpgradeLevelPower = 0,
+		SharedUpgradeLevelToughness = 0,
+		SharedUpgradeLevelSpeed = 0,
+		SharedUpgradeLevelAggression = 0,
 		UpgradeHooks = {
 			PrimaryMaterial = "Scrap",
 			Focus = "Power",
@@ -75,6 +83,10 @@ ArenaFighterDefs.Roster = {
 		UpgradeToughnessBonus = 0,
 		UpgradeSpeedBonus = 0,
 		UpgradeAggressionBonus = 0,
+		SharedUpgradeLevelPower = 0,
+		SharedUpgradeLevelToughness = 0,
+		SharedUpgradeLevelSpeed = 0,
+		SharedUpgradeLevelAggression = 0,
 		UpgradeHooks = {
 			PrimaryMaterial = "Alloy",
 			Focus = "Toughness",
@@ -99,6 +111,10 @@ ArenaFighterDefs.Roster = {
 		UpgradeToughnessBonus = 0,
 		UpgradeSpeedBonus = 0,
 		UpgradeAggressionBonus = 0,
+		SharedUpgradeLevelPower = 0,
+		SharedUpgradeLevelToughness = 0,
+		SharedUpgradeLevelSpeed = 0,
+		SharedUpgradeLevelAggression = 0,
 		UpgradeHooks = {
 			PrimaryMaterial = "Capacitor",
 			Focus = "Aggression",
@@ -123,6 +139,10 @@ ArenaFighterDefs.Roster = {
 		UpgradeToughnessBonus = 0,
 		UpgradeSpeedBonus = 0,
 		UpgradeAggressionBonus = 0,
+		SharedUpgradeLevelPower = 0,
+		SharedUpgradeLevelToughness = 0,
+		SharedUpgradeLevelSpeed = 0,
+		SharedUpgradeLevelAggression = 0,
 		UpgradeHooks = {
 			PrimaryMaterial = "Plate",
 			Focus = "Speed",
@@ -358,6 +378,54 @@ function ArenaFighterDefs.ApplyUpgrade(fighterId: string, statKey: string, rawBo
 		fighter.UpgradeSpeedBonus += amount
 	elseif statKey == "Aggression" then
 		fighter.UpgradeAggressionBonus += amount
+	else
+		return false
+	end
+
+	return true
+end
+
+function ArenaFighterDefs.GetRosterEntryById(id: string): FighterDefinition?
+	return getRosterEntryById(id)
+end
+
+function ArenaFighterDefs.GetSharedUpgradeLevel(fighterId: string, statKey: string): number
+	local fighter = getRosterEntryById(fighterId)
+	if not fighter then
+		return 0
+	end
+
+	local key = statKey == "Power" and "SharedUpgradeLevelPower"
+		or statKey == "Toughness" and "SharedUpgradeLevelToughness"
+		or statKey == "Speed" and "SharedUpgradeLevelSpeed"
+		or statKey == "Aggression" and "SharedUpgradeLevelAggression"
+	if not key then
+		return 0
+	end
+
+	return math.max(0, math.floor(tonumber((fighter :: any)[key]) or 0))
+end
+
+function ArenaFighterDefs.SetSharedUpgradeLevel(fighterId: string, statKey: string, level: number, rawBonusAmount: number): boolean
+	local fighter = getRosterEntryById(fighterId)
+	if not fighter then
+		return false
+	end
+
+	local clampedLevel = math.max(0, math.floor(level))
+	local amount = math.max(0, rawBonusAmount)
+	if statKey == "Power" then
+		fighter.SharedUpgradeLevelPower = clampedLevel
+		fighter.UpgradePowerBonus = amount
+	elseif statKey == "Toughness" then
+		fighter.SharedUpgradeLevelToughness = clampedLevel
+		fighter.UpgradeToughnessBonus = amount
+	elseif statKey == "Speed" then
+		fighter.SharedUpgradeLevelSpeed = clampedLevel
+		fighter.UpgradeSpeedBonus = amount
+	elseif statKey == "Aggression" then
+		fighter.SharedUpgradeLevelAggression = clampedLevel
+		fighter.UpgradeAggressionBonus = amount
 	else
 		return false
 	end

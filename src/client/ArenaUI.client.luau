@@ -13,6 +13,7 @@ local Net = require(Shared:WaitForChild("Net"))
 
 local arenaState = ReplicatedStorage:WaitForChild("ArenaState")
 local predictWinnerRemote = Net.GetRemoteEvent(Constants.Remotes.ArenaPredictWinner)
+local upgradeFighterRemote = Net.GetRemoteEvent(Constants.Remotes.ArenaUpgradeFighter)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "NpcEventHubGui"
@@ -175,6 +176,8 @@ cueScale.Parent = cueBanner
 
 local lastCuePresentationKey = ""
 local pulseCueBanner: (number) -> ()
+local setArenaNameplateVisibility: (boolean) -> ()
+local applyCueBannerPresentation: (string, Color3, string, Color3) -> ()
 
 local personalResultBanner = Instance.new("Frame")
 personalResultBanner.Name = "PersonalResultBanner"
@@ -276,6 +279,8 @@ local localPredictionMarkerGui: BillboardGui? = nil
 local localPredictionMarkerTarget: BasePart? = nil
 local personalResultToken = 0
 local lastPersonalResultRoundId = -1
+local tutorialCueToken = 0
+local lastTutorialCueKey = ""
 
 local function connectButtonClick(button: TextButton, callback: () -> ())
 	button.MouseButton1Click:Connect(callback)
@@ -318,6 +323,7 @@ end
 local function hidePersonalResultBanner()
 	personalResultToken += 1
 	personalResultBanner.Visible = false
+	setArenaNameplateVisibility(true)
 	personalResultBanner.BackgroundTransparency = 0.12
 	personalResultTitle.TextTransparency = 0
 	personalResultTitle.TextStrokeTransparency = 0.35
@@ -349,6 +355,7 @@ local function showPersonalResultBanner(titleText: string, titleColor: Color3, d
 	personalResultReward.TextTransparency = 0
 	personalResultReward.TextStrokeTransparency = 0.55
 	personalResultBanner.Visible = true
+	setArenaNameplateVisibility(false)
 	personalResultScale.Scale = scaleFrom
 
 	local settle = TweenService:Create(personalResultScale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -389,6 +396,7 @@ local function refreshPersonalResultBanner()
 	local roundId = tonumber(arenaState:GetAttribute("RoundId") or -1) or -1
 	local outcomeRoundId = tonumber(player:GetAttribute("ArenaOutcomeRoundId") or -1) or -1
 	local outcome = tostring(player:GetAttribute("ArenaOutcome") or "")
+	local outcomeReward = tonumber(player:GetAttribute("ArenaOutcomeReward") or 0) or 0
 
 	if phase ~= "Result" then
 		hidePersonalResultBanner()
@@ -410,7 +418,7 @@ local function refreshPersonalResultBanner()
 			"PREDICTION CORRECT",
 			Color3.fromRGB(144, 242, 152),
 			detailText,
-			("+%d Credits"):format(Constants.Arena.CorrectPredictionReward),
+			if outcomeReward > 0 then ("+%d Credits"):format(outcomeReward) else "",
 			1.8,
 			1.08
 		)
@@ -478,6 +486,9 @@ local function scheduleArenaCueRefresh()
 				cueBanner.Visible = false
 				setCueSecondary("", cueSecondary.TextColor3)
 				lastCuePresentationKey = ""
+			elseif personalResultBanner.Visible and eventCue == "Winner" then
+				cueBanner.Visible = false
+				setCueSecondary("", cueSecondary.TextColor3)
 			elseif countdownNumber > 0 then
 				cueBanner.Visible = true
 				applyCueBannerPresentation(tostring(countdownNumber), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
@@ -555,7 +566,7 @@ pulseCueBanner = function(scaleFrom: number)
 	pop:Play()
 end
 
-local function applyCueBannerPresentation(primaryText: string, primaryColor: Color3, secondaryText: string, secondaryColor: Color3)
+applyCueBannerPresentation = function(primaryText: string, primaryColor: Color3, secondaryText: string, secondaryColor: Color3)
 	local key = table.concat({primaryText, secondaryText}, "::")
 	local isOutcomeFocus = secondaryText ~= "" and (primaryText == "PREDICTION CORRECT" or primaryText == "PREDICTION MISSED")
 
@@ -639,6 +650,15 @@ local function setInfoLine(label: TextLabel, prefix: string, valueText: string)
 	label.Text = ("%s %s"):format(prefix, valueText)
 end
 
+local function getPlayerScrap(): number
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local scrapValue = leaderstats and (leaderstats:FindFirstChild("Materials") or leaderstats:FindFirstChild("Scrap"))
+	if scrapValue and scrapValue:IsA("IntValue") then
+		return scrapValue.Value
+	end
+	return 0
+end
+
 local function makeActionButton(parent: Instance, text: string, color: Color3): TextButton
 	local button = Instance.new("TextButton")
 	button.Size = UDim2.new(1, 0, 0, 30)
@@ -659,6 +679,104 @@ local function makeActionButton(parent: Instance, text: string, color: Color3): 
 	stroke.Parent = button
 
 	return button
+end
+
+local function makeCompactRowButton(parent: Instance, width: number, text: string, color: Color3): TextButton
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(0, width, 0, 30)
+	button.BackgroundColor3 = color
+	button.TextColor3 = Color3.fromRGB(245, 247, 250)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 13
+	button.TextTruncate = Enum.TextTruncate.AtEnd
+	button.Text = text
+	button.BorderSizePixel = 0
+	button.Parent = parent
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Stroke"
+	stroke.Thickness = 1
+	stroke.Color = Color3.fromRGB(250, 212, 120)
+	stroke.Transparency = 0.9
+	stroke.Parent = button
+
+	return button
+end
+
+local function setCompactUpgradeButtonState(
+	button: TextButton,
+	fighterId: string,
+	cost: number,
+	materials: number,
+	isAvailable: boolean
+)
+	local stroke = button:FindFirstChild("Stroke") :: UIStroke?
+	local canUpgrade = fighterId ~= "" and cost > 0 and materials >= cost and isAvailable
+
+	button.Active = canUpgrade
+	button.AutoButtonColor = canUpgrade
+	button.Text = "+ Upgrade"
+	button.TextColor3 = if canUpgrade then Color3.fromRGB(255, 241, 205) else Color3.fromRGB(206, 214, 224)
+	button.BackgroundTransparency = if canUpgrade then 0.12 else 0.42
+	if stroke then
+		stroke.Transparency = if canUpgrade then 0.22 else 0.72
+	end
+
+	button:SetAttribute("FighterId", fighterId)
+	button:SetAttribute("UpgradeCost", cost)
+end
+
+local function showTutorialCue(stepText: string, step: number, stepCount: number)
+	tutorialCueToken += 1
+	local current = tutorialCueToken
+
+	applyCueBannerPresentation(
+		stepText:upper(),
+		Color3.fromRGB(164, 227, 255),
+		("Step %d/%d"):format(math.max(1, step), math.max(1, stepCount)),
+		Color3.fromRGB(216, 236, 248)
+	)
+	cueBanner.Visible = true
+	pulseCueBanner(0.98)
+
+	task.delay(1.85, function()
+		if current ~= tutorialCueToken then
+			return
+		end
+
+		TweenService:Create(cueBanner, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1,
+		}):Play()
+		task.delay(0.22, function()
+			if current == tutorialCueToken then
+				cueBanner.Visible = false
+				setCueSecondary("", cueSecondary.TextColor3)
+				lastCuePresentationKey = ""
+				scheduleArenaCueRefresh()
+			end
+		end)
+	end)
+end
+
+local function refreshTutorialCue()
+	local tutorialActive = player:GetAttribute("TutorialActive") == true
+	local tutorialCompleted = player:GetAttribute("TutorialCompleted") == true
+	local step = tonumber(player:GetAttribute("TutorialStep") or 1) or 1
+	local stepCount = tonumber(player:GetAttribute("TutorialStepCount") or 5) or 5
+	local stepText = tostring(player:GetAttribute("TutorialStepText") or "")
+
+	if not tutorialActive or tutorialCompleted or stepText == "" then
+		lastTutorialCueKey = ""
+		return
+	end
+
+	local cueKey = ("%d:%s"):format(step, stepText)
+	if cueKey == lastTutorialCueKey then
+		return
+	end
+
+	lastTutorialCueKey = cueKey
+	showTutorialCue(stepText, step, stepCount)
 end
 
 local function getChoiceDisplayName(choiceName: string, fallbackName: string): string
@@ -849,11 +967,12 @@ local function makeFighterStatCard(parent: Instance, accentColor: Color3, header
 	header.Name = "Header"
 	header.BackgroundTransparency = 1
 	header.Position = UDim2.fromOffset(10, 0)
-	header.Size = UDim2.new(1, -12, 1, 0)
+	header.Size = UDim2.new(1, 0, 1, 0)
 	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.Font = Enum.Font.GothamBlack
 	header.TextSize = 13
 	header.TextColor3 = headerTextColor
+	header.TextTruncate = Enum.TextTruncate.AtEnd
 	header.Text = ""
 	header.Parent = headerFrame
 
@@ -907,27 +1026,59 @@ local function buildArenaBody(body: Frame): {[string]: any}
 	local result = makeSectionLabel(body, 18, 13, Color3.fromRGB(136, 230, 144), Enum.Font.GothamBold)
 
 	local buttonRow = Instance.new("Frame")
-	buttonRow.Size = UDim2.new(1, 0, 0, 104)
+	buttonRow.AutomaticSize = Enum.AutomaticSize.Y
+	buttonRow.Size = UDim2.new(1, 0, 0, 0)
 	buttonRow.BackgroundTransparency = 1
 	buttonRow.Parent = body
 
 	local buttonPadding = Instance.new("UIPadding")
+	buttonPadding.PaddingTop = UDim.new(0, 4)
 	buttonPadding.PaddingBottom = UDim.new(0, 8)
 	buttonPadding.Parent = buttonRow
 
 	local buttonLayout = Instance.new("UIListLayout")
-	buttonLayout.Padding = UDim.new(0, 4)
+	buttonLayout.Padding = UDim.new(0, 6)
 	buttonLayout.Parent = buttonRow
+
+	local spectate = makeActionButton(buttonRow, "Watch Fight", Color3.fromRGB(56, 71, 99))
 
 	local sectionSpacer = Instance.new("Frame")
 	sectionSpacer.Name = "SectionSpacer"
-	sectionSpacer.Size = UDim2.new(1, 0, 0, 8)
+	sectionSpacer.Size = UDim2.new(1, 0, 0, 18)
 	sectionSpacer.BackgroundTransparency = 1
 	sectionSpacer.Parent = buttonRow
 
-	local predictA = makeActionButton(buttonRow, "Predict A", Color3.fromRGB(161, 74, 74))
-	local predictB = makeActionButton(buttonRow, "Predict B", Color3.fromRGB(69, 108, 176))
-	local spectate = makeActionButton(buttonRow, "Watch Fight", Color3.fromRGB(56, 71, 99))
+	local actionRowA = Instance.new("Frame")
+	actionRowA.Name = "ActionRowA"
+	actionRowA.Size = UDim2.new(1, 0, 0, 30)
+	actionRowA.BackgroundTransparency = 1
+	actionRowA.Parent = buttonRow
+
+	local actionRowALayout = Instance.new("UIListLayout")
+	actionRowALayout.FillDirection = Enum.FillDirection.Horizontal
+	actionRowALayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	actionRowALayout.Padding = UDim.new(0, 6)
+	actionRowALayout.Parent = actionRowA
+
+	local predictA = makeActionButton(actionRowA, "Predict A", Color3.fromRGB(161, 74, 74))
+	predictA.Size = UDim2.new(1, -92, 0, 30)
+	local upgradeA = makeCompactRowButton(actionRowA, 86, "+ Upgrade", Color3.fromRGB(116, 92, 58))
+
+	local actionRowB = Instance.new("Frame")
+	actionRowB.Name = "ActionRowB"
+	actionRowB.Size = UDim2.new(1, 0, 0, 30)
+	actionRowB.BackgroundTransparency = 1
+	actionRowB.Parent = buttonRow
+
+	local actionRowBLayout = Instance.new("UIListLayout")
+	actionRowBLayout.FillDirection = Enum.FillDirection.Horizontal
+	actionRowBLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	actionRowBLayout.Padding = UDim.new(0, 6)
+	actionRowBLayout.Parent = actionRowB
+
+	local predictB = makeActionButton(actionRowB, "Predict B", Color3.fromRGB(69, 108, 176))
+	predictB.Size = UDim2.new(1, -92, 0, 30)
+	local upgradeB = makeCompactRowButton(actionRowB, 86, "+ Upgrade", Color3.fromRGB(116, 92, 58))
 
 	return {
 		status = status,
@@ -936,6 +1087,8 @@ local function buildArenaBody(body: Frame): {[string]: any}
 		fighterBStats = fighterBStats,
 		winner = winner,
 		result = result,
+		upgradeA = upgradeA,
+		upgradeB = upgradeB,
 		predictA = predictA,
 		predictB = predictB,
 		spectate = spectate,
@@ -973,6 +1126,23 @@ local function findArenaFighterPartForSlot(slot: string): BasePart?
 	end
 
 	return nil
+end
+
+setArenaNameplateVisibility = function(visible: boolean)
+	local runtime = findArenaRuntimeFolder()
+	if not runtime then
+		return
+	end
+
+	for _, child in ipairs(runtime:GetChildren()) do
+		if child:IsA("Model") then
+			for _, descendant in ipairs(child:GetDescendants()) do
+				if descendant:IsA("BillboardGui") and descendant.Name == "ArenaNameplate" then
+					descendant.Enabled = visible
+				end
+			end
+		end
+	end
 end
 
 local function ensureLocalPredictionMarker(): BillboardGui
@@ -1065,20 +1235,25 @@ local eventSections: {EventSectionDefinition} = {
 			local fighterBName = tostring(arenaState:GetAttribute("FighterBName") or "Fighter B")
 			local fighterAStyle = tostring(arenaState:GetAttribute("FighterAStyle") or "")
 			local fighterBStyle = tostring(arenaState:GetAttribute("FighterBStyle") or "")
+			local fighterAId = tostring(arenaState:GetAttribute("FighterAId") or "")
+			local fighterBId = tostring(arenaState:GetAttribute("FighterBId") or "")
 			local fighterAPower = tonumber(arenaState:GetAttribute("FighterAPower") or 0) or 0
 			local fighterASpeed = tonumber(arenaState:GetAttribute("FighterASpeed") or 0) or 0
 			local fighterAToughness = tonumber(arenaState:GetAttribute("FighterAToughness") or 0) or 0
 			local fighterARecord = tostring(arenaState:GetAttribute("FighterARecord") or "0-0")
 			local fighterAWinChance = tonumber(arenaState:GetAttribute("FighterAWinChance") or 50) or 50
+			local fighterAPowerUpgradeCost = tonumber(arenaState:GetAttribute("FighterAPowerUpgradeCost") or 0) or 0
 			local fighterBPower = tonumber(arenaState:GetAttribute("FighterBPower") or 0) or 0
 			local fighterBSpeed = tonumber(arenaState:GetAttribute("FighterBSpeed") or 0) or 0
 			local fighterBToughness = tonumber(arenaState:GetAttribute("FighterBToughness") or 0) or 0
 			local fighterBRecord = tostring(arenaState:GetAttribute("FighterBRecord") or "0-0")
 			local fighterBWinChance = tonumber(arenaState:GetAttribute("FighterBWinChance") or 50) or 50
+			local fighterBPowerUpgradeCost = tonumber(arenaState:GetAttribute("FighterBPowerUpgradeCost") or 0) or 0
 			local winnerName = tostring(arenaState:GetAttribute("LastResult") or "")
 			local currentWinnerName = tostring(arenaState:GetAttribute("WinnerName") or "")
 			local timeRemaining = tonumber(arenaState:GetAttribute("TimeRemaining") or 0) or 0
 			local predictionOpen = arenaState:GetAttribute("PredictionOpen") == true
+			local scrap = getPlayerScrap()
 			local currentPredictionRoundId = tonumber(player:GetAttribute("ArenaPredictionRoundId") or -1) or -1
 			local currentPredictionSlot = tostring(player:GetAttribute("ArenaPredictionSlot") or "")
 			local alreadyPredicted = currentPredictionRoundId == roundId and currentPredictionSlot ~= ""
@@ -1119,11 +1294,28 @@ local eventSections: {EventSectionDefinition} = {
 			winnerLabel.TextColor3 = getArenaWinnerInfoColor(phase)
 			resultLabel.Text = ""
 			resultLabel.Visible = false
-
+			local upgradeA = views.upgradeA :: TextButton
+			local upgradeB = views.upgradeB :: TextButton
 			local predictA = views.predictA :: TextButton
 			local predictB = views.predictB :: TextButton
 			local spectate = views.spectate :: TextButton
 			local isFightLocked = phase == "FightActive" or phase == "Result" or predictionLocked
+			local upgradesAvailable = phase ~= "FightActive" and phase ~= "Result"
+
+			setCompactUpgradeButtonState(
+				upgradeA,
+				fighterAId,
+				fighterAPowerUpgradeCost,
+				scrap,
+				upgradesAvailable
+			)
+			setCompactUpgradeButtonState(
+				upgradeB,
+				fighterBId,
+				fighterBPowerUpgradeCost,
+				scrap,
+				upgradesAvailable
+			)
 
 			if phase == "Intermission" or phase == "Introductions" then
 				setPredictionButtonState(predictA, "A", fighterAName, "Fighter A", "opens_soon")
@@ -1314,6 +1506,9 @@ local function refreshCueBanner()
 		cueBanner.Visible = false
 		setCueSecondary("", cueSecondary.TextColor3)
 		lastCuePresentationKey = ""
+	elseif personalResultBanner.Visible and eventCue == "Winner" then
+		cueBanner.Visible = false
+		setCueSecondary("", cueSecondary.TextColor3)
 	elseif countdownNumber > 0 then
 		cueBanner.Visible = true
 		applyCueBannerPresentation(tostring(countdownNumber), Color3.fromRGB(255, 212, 122), "", cueSecondary.TextColor3)
@@ -1358,6 +1553,7 @@ local function refreshAll()
 	refreshCueBanner()
 	refreshPersonalResultBanner()
 	refreshLocalPredictionMarker()
+	refreshTutorialCue()
 end
 
 local function setHubOpen(open: boolean)
@@ -1383,9 +1579,25 @@ end
 
 local arenaViews = sectionViewsById.arena
 if arenaViews then
+	local arenaUpgradeAButton = arenaViews.upgradeA :: TextButton
+	local arenaUpgradeBButton = arenaViews.upgradeB :: TextButton
 	local arenaPredictAButton = arenaViews.predictA :: TextButton
 	local arenaPredictBButton = arenaViews.predictB :: TextButton
 	local arenaSpectateButton = arenaViews.spectate :: TextButton
+
+	connectButtonClick(arenaUpgradeAButton, function()
+		local fighterId = tostring(arenaUpgradeAButton:GetAttribute("FighterId") or "")
+		if fighterId ~= "" then
+			upgradeFighterRemote:FireServer(fighterId, Constants.Arena.UpgradeStatKey)
+		end
+	end)
+
+	connectButtonClick(arenaUpgradeBButton, function()
+		local fighterId = tostring(arenaUpgradeBButton:GetAttribute("FighterId") or "")
+		if fighterId ~= "" then
+			upgradeFighterRemote:FireServer(fighterId, Constants.Arena.UpgradeStatKey)
+		end
+	end)
 
 	connectButtonClick(arenaPredictAButton, function()
 		predictWinnerRemote:FireServer("A")
@@ -1442,16 +1654,20 @@ for _, attr in ipairs({
 	"FighterBName",
 	"FighterAStyle",
 	"FighterBStyle",
+	"FighterAId",
+	"FighterBId",
 	"FighterAPower",
 	"FighterASpeed",
 	"FighterAToughness",
 	"FighterARecord",
 	"FighterAWinChance",
+	"FighterAPowerUpgradeCost",
 	"FighterBPower",
 	"FighterBSpeed",
 	"FighterBToughness",
 	"FighterBRecord",
 	"FighterBWinChance",
+	"FighterBPowerUpgradeCost",
 	"TimeRemaining",
 	"WinnerName",
 	"LastResult",
@@ -1465,7 +1681,20 @@ for _, attr in ipairs({
 	arenaState:GetAttributeChangedSignal(attr):Connect(refreshAll)
 end
 
-for _, attr in ipairs({"ArenaPredictionRoundId", "ArenaPredictionSlot", "ArenaPredictionLocked", "ArenaPredictionRewardGranted", "ArenaOutcome", "ArenaOutcomeRoundId"}) do
+for _, attr in ipairs({
+	"ArenaPredictionRoundId",
+	"ArenaPredictionSlot",
+	"ArenaPredictionLocked",
+	"ArenaPredictionRewardGranted",
+	"ArenaOutcome",
+	"ArenaOutcomeRoundId",
+	"ArenaOutcomeReward",
+	"TutorialActive",
+	"TutorialCompleted",
+	"TutorialStep",
+	"TutorialStepCount",
+	"TutorialStepText",
+}) do
 	player:GetAttributeChangedSignal(attr):Connect(refreshAll)
 end
 
@@ -1481,6 +1710,10 @@ local function bindCreditsRefresh()
 	local credits = leaderstats and leaderstats:FindFirstChild("Credits")
 	if credits and credits:IsA("IntValue") then
 		credits:GetPropertyChangedSignal("Value"):Connect(refreshAll)
+	end
+	local materials = leaderstats and (leaderstats:FindFirstChild("Materials") or leaderstats:FindFirstChild("Scrap"))
+	if materials and materials:IsA("IntValue") then
+		materials:GetPropertyChangedSignal("Value"):Connect(refreshAll)
 	end
 end
 

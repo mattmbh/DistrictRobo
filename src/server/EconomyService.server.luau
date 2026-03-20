@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Constants = require(Shared:WaitForChild("Constants"))
 local Net = require(Shared:WaitForChild("Net"))
+local TutorialService = require(script.Parent:WaitForChild("TutorialService"))
 
 local runtimeFolder = ServerScriptService:FindFirstChild("ServerRuntime")
 if not runtimeFolder then
@@ -69,6 +70,7 @@ end
 
 	local _, materials = getPlayerStats(player)
 	materials.Value += math.max(1, math.floor(amount))
+	TutorialService.MarkMaterialCollected(player)
 	print(("[EconomyService] +%d materials to %s (%s)"):format(amount, player.Name, reason or "unknown"))
 	return true
 end
