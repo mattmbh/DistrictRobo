@@ -18,15 +18,15 @@ local function getLeaderstats(player: Player): Folder?
 	return nil
 end
 
-local function getMaterialsValue(player: Player): IntValue?
+local function getCreditsValue(player: Player): IntValue?
 	local leaderstats = getLeaderstats(player)
 	if not leaderstats then
 		return nil
 	end
 
-	local materials = leaderstats:FindFirstChild("Materials")
-	if materials and materials:IsA("IntValue") then
-		return materials
+	local credits = leaderstats:FindFirstChild("Credits")
+	if credits and credits:IsA("IntValue") then
+		return credits
 	end
 
 	return nil
@@ -71,17 +71,17 @@ function PlayerRewardUpgradeService.UpgradeRewardMultiplier(player: Player): (bo
 		return false, "Earnings multiplier maxed"
 	end
 
-	local materials = getMaterialsValue(player)
-	if not materials then
-		return false, "Materials unavailable"
+	local credits = getCreditsValue(player)
+	if not credits then
+		return false, "Credits unavailable"
 	end
 
 	local cost = PlayerRewardUpgradeService.GetUpgradeCost(level)
-	if materials.Value < cost then
-		return false, "Not enough Materials"
+	if credits.Value < cost then
+		return false, ("Need %d Credits"):format(cost)
 	end
 
-	materials.Value -= cost
+	credits.Value -= cost
 	player:SetAttribute("RewardUpgradeLevel", level + 1)
 	syncPlayerAttributes(player)
 	return true, ("Earnings multiplier upgraded to x%.2f"):format(PlayerRewardUpgradeService.GetRewardMultiplier(player))

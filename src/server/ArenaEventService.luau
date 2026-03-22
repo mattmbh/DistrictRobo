@@ -9,6 +9,7 @@ local ArenaPredictionService = require(script.Parent:WaitForChild("ArenaPredicti
 local ArenaBuildService = require(script.Parent:WaitForChild("ArenaBuildService"))
 local ArenaCombatFX = require(script.Parent:WaitForChild("ArenaCombatFX"))
 local ArenaDisplayService = require(script.Parent:WaitForChild("ArenaDisplayService"))
+local ArenaFighterMotion = require(script.Parent:WaitForChild("ArenaFighterMotion"))
 local ArenaFighterUpgradeService = require(script.Parent:WaitForChild("ArenaFighterUpgradeService"))
 
 local ArenaEventService = {}
@@ -39,6 +40,11 @@ type FighterState = {
 	nextAttackAt: number,
 	damageDealt: number,
 	hitsLanded: number,
+	logicalPosition: Vector3,
+	lookTarget: Vector3,
+	lastLookDirection: Vector3,
+	idleSeed: number,
+	motionState: {[string]: any},
 }
 
 local replicatedFolder: Folder? = nil
@@ -327,6 +333,7 @@ local function spawnFighter(slot: string, definition: {[string]: any}, combatPro
 	model:SetAttribute("Aggression", ArenaFighterDefs.GetPublicProfile(definition).Aggression)
 
 	local healthFill = createNameplate(head, definition)
+	local spawnPosition = (spawnPart.CFrame + Vector3.new(0, 3.5, 0)).Position
 
 	print(("[ArenaFight] Spawned %s as %s hp=%.1f dmg=%.1f cd=%.2f style=%s"):format(
 		definition.Name,
@@ -352,6 +359,11 @@ local function spawnFighter(slot: string, definition: {[string]: any}, combatPro
 		nextAttackAt = 0,
 		damageDealt = 0,
 		hitsLanded = 0,
+		logicalPosition = spawnPosition,
+		lookTarget = spawnPosition + spawnPart.CFrame.LookVector,
+		lastLookDirection = spawnPart.CFrame.LookVector,
+		idleSeed = 0,
+		motionState = {},
 	}
 end
 
@@ -372,14 +384,15 @@ local function getFightCenter(): Vector3?
 	local fighterA = currentFighters[1]
 	local fighterB = currentFighters[2]
 	if fighterA and fighterB and fighterA.model.Parent and fighterB.model.Parent then
-		return (fighterA.rootPart.Position + fighterB.rootPart.Position) * 0.5 + Vector3.new(0, 3, 0)
+		return (fighterA.logicalPosition + fighterB.logicalPosition) * 0.5 + Vector3.new(0, 3, 0)
 	end
 	return nil
 end
 
-local function rotateToward(fighter: FighterState, lookTarget: Vector3)
-	local origin = fighter.rootPart.Position
-	fighter.model:PivotTo(CFrame.lookAt(origin, Vector3.new(lookTarget.X, origin.Y, lookTarget.Z)))
+local function updateFighterPresentation(now: number)
+	for _, fighter in ipairs(currentFighters) do
+		ArenaFighterMotion.Update(fighter, now)
+	end
 end
 
 local function stageFighters()
@@ -388,8 +401,11 @@ local function stageFighters()
 	if not fighterA or not fighterB then
 		return
 	end
-	rotateToward(fighterA, fighterB.rootPart.Position)
-	rotateToward(fighterB, fighterA.rootPart.Position)
+	ArenaFighterMotion.SetBaseTransform(fighterA, fighterA.logicalPosition, fighterB.logicalPosition)
+	ArenaFighterMotion.SetBaseTransform(fighterB, fighterB.logicalPosition, fighterA.logicalPosition)
+	ArenaFighterMotion.SetReady(fighterA, os.clock())
+	ArenaFighterMotion.SetReady(fighterB, os.clock())
+	updateFighterPresentation(os.clock())
 	local fightCenter = getFightCenter()
 	if fightCenter then
 		updateState({
@@ -407,6 +423,7 @@ local function armFightersForRound()
 		fighter.strikeAt = 0
 		fighter.recoveryEndsAt = 0
 		fighter.nextAttackAt = now + math.max(0.05, fighter.combatProfile.OpeningDelay)
+		ArenaFighterMotion.SetReady(fighter, now)
 	end
 end
 
@@ -440,12 +457,12 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 		return
 	end
 
-	local origin = fighter.rootPart.Position
-	local target = opponent.rootPart.Position
+	local origin = fighter.logicalPosition
+	local target = opponent.logicalPosition
 	local planarDelta = Vector3.new(target.X - origin.X, 0, target.Z - origin.Z)
 	local distance = planarDelta.Magnitude
 	local desiredLook = if distance > 0.001 then planarDelta.Unit else Vector3.new(0, 0, -1)
-	rotateToward(fighter, target)
+	ArenaFighterMotion.SetBaseTransform(fighter, origin, target)
 
 	if now < fighter.recoveryEndsAt then
 		return
@@ -453,8 +470,6 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 
 	if fighter.strikeAt > 0 then
 		if now < fighter.strikeAt then
-			local leanPosition = origin + desiredLook * 0.35
-			fighter.model:PivotTo(CFrame.lookAt(leanPosition, Vector3.new(target.X, leanPosition.Y, target.Z)))
 			return
 		end
 
@@ -462,16 +477,19 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 		fighter.windupEndsAt = 0
 		fighter.recoveryEndsAt = now + Constants.Arena.AttackRecovery
 		fighter.nextAttackAt = now + fighter.combatProfile.AttackCooldown
+		ArenaFighterMotion.StartStrike(fighter, now, desiredLook, Constants.Arena.AttackRecovery)
 
-		local lungePosition = origin + desiredLook * 1.6
-		fighter.model:PivotTo(CFrame.lookAt(lungePosition, Vector3.new(target.X, lungePosition.Y, target.Z)))
 		opponent.humanoid:TakeDamage(fighter.combatProfile.AttackDamage)
 		fighter.damageDealt += fighter.combatProfile.AttackDamage
 		fighter.hitsLanded += 1
 		updateHealthVisual(opponent)
-		local recoilPosition = opponent.rootPart.Position - desiredLook * Constants.Arena.HitRecoilDistance
-		opponent.model:PivotTo(CFrame.lookAt(recoilPosition, Vector3.new(origin.X, recoilPosition.Y, origin.Z)))
+		ArenaFighterMotion.SetBaseTransform(opponent, opponent.logicalPosition, fighter.logicalPosition)
 		opponent.recoveryEndsAt = math.max(opponent.recoveryEndsAt, now + 0.12)
+		if opponent.humanoid.Health <= 0 then
+			ArenaFighterMotion.StartKO(opponent, now, desiredLook)
+		else
+			ArenaFighterMotion.StartHitReact(opponent, now, desiredLook)
+		end
 		ArenaCombatFX.EmitHit(opponent.rootPart, fighter.combatProfile.AttackDamage)
 		print(("[ArenaFight] %s hit %s for %.1f (hp=%.1f)"):format(
 			fighter.definition.Name,
@@ -483,8 +501,6 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 	end
 
 	if now < fighter.windupEndsAt then
-		local leanPosition = origin + desiredLook * 0.35
-		fighter.model:PivotTo(CFrame.lookAt(leanPosition, Vector3.new(target.X, leanPosition.Y, target.Z)))
 		return
 	end
 
@@ -494,14 +510,14 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 	if distance < minimumCombatDistance and now >= fighter.nextAttackAt then
 		local backstep = math.min(fighter.combatProfile.MoveSpeed * 0.45 * deltaTime, minimumCombatDistance - distance)
 		local newPosition = origin - desiredLook * math.max(0.08, backstep)
-		fighter.model:PivotTo(CFrame.lookAt(newPosition, Vector3.new(target.X, newPosition.Y, target.Z)))
+		ArenaFighterMotion.SetBaseTransform(fighter, newPosition, target)
 		return
 	end
 
 	if distance > Constants.Arena.FightRange then
 		local moveStep = math.min(fighter.combatProfile.MoveSpeed * deltaTime, math.max(0, distance - preferredCombatDistance))
 		local newPosition = origin + desiredLook * moveStep
-		fighter.model:PivotTo(CFrame.lookAt(newPosition, Vector3.new(target.X, newPosition.Y, target.Z)))
+		ArenaFighterMotion.SetBaseTransform(fighter, newPosition, target)
 		return
 	end
 
@@ -511,6 +527,7 @@ local function stepFighter(fighter: FighterState, opponent: FighterState, deltaT
 
 	fighter.windupEndsAt = now + fighter.combatProfile.AttackWindup
 	fighter.strikeAt = fighter.windupEndsAt
+	ArenaFighterMotion.StartWindup(fighter, now, desiredLook, fighter.combatProfile.AttackWindup)
 end
 
 local function runFight(): string?
@@ -549,6 +566,7 @@ local function runFight(): string?
 		local now = os.clock()
 		stepFighter(fighterA, fighterB, deltaTime, now)
 		stepFighter(fighterB, fighterA, deltaTime, now)
+		updateFighterPresentation(now)
 
 		if now >= nextBroadcastAt then
 			nextBroadcastAt = now + Constants.Arena.StateBroadcastRate
@@ -579,15 +597,26 @@ end
 
 local function tickPhase(duration: number, countdownCue: boolean?)
 	local remaining = duration
+	local secondAccumulator = 0
+	updateState({
+		TimeRemaining = remaining,
+	})
 	while remaining > 0 do
-		updateState({
-			TimeRemaining = remaining,
-		})
-		if countdownCue and remaining <= 3 then
-			setPresentation(tostring(remaining), "FIGHT STARTING", "Countdown", remaining)
+		local deltaTime = RunService.Heartbeat:Wait()
+		secondAccumulator += deltaTime
+		if #currentFighters > 0 then
+			updateFighterPresentation(os.clock())
 		end
-		task.wait(1)
-		remaining -= 1
+		while secondAccumulator >= 1 and remaining > 0 do
+			secondAccumulator -= 1
+			remaining -= 1
+			updateState({
+				TimeRemaining = remaining,
+			})
+			if countdownCue and remaining > 0 and remaining <= 3 then
+				setPresentation(tostring(remaining), "FIGHT STARTING", "Countdown", remaining)
+			end
+		end
 	end
 	updateState({
 		TimeRemaining = 0,
@@ -683,6 +712,8 @@ function ArenaEventService.Run()
 		local fighterA = spawnFighter("A", definitionA, combatProfileA, buildData.spawnA)
 		local fighterB = spawnFighter("B", definitionB, combatProfileB, buildData.spawnB)
 		currentFighters = {fighterA, fighterB}
+		ArenaFighterMotion.Initialize(fighterA, fighterA.logicalPosition, fighterB.logicalPosition)
+		ArenaFighterMotion.Initialize(fighterB, fighterB.logicalPosition, fighterA.logicalPosition)
 		updateHealthVisual(fighterA)
 		updateHealthVisual(fighterB)
 		stageFighters()
@@ -738,6 +769,14 @@ function ArenaEventService.Run()
 
 		print(("[ArenaEvent] Round %d result=%s"):format(currentRoundId, winnerName))
 		setPhase("Result", phaseDurations.Result)
+		local winnerFighter = if winningSlot == "A" then fighterA else fighterB
+		local loserFighter = if winningSlot == "A" then fighterB else fighterA
+		local resultNow = os.clock()
+		ArenaFighterMotion.StartVictory(winnerFighter, resultNow)
+		if loserFighter.humanoid.Health > 0 then
+			local losingDir = (winnerFighter.logicalPosition - loserFighter.logicalPosition)
+			ArenaFighterMotion.StartKO(loserFighter, resultNow, losingDir)
+		end
 		setPresentation("WINNER!", winnerName:upper(), "Winner", 0)
 		pulseArenaLights(Color3.fromRGB(123, 220, 126), 2.4, 0.7)
 		tickPhase(phaseDurations.Result)

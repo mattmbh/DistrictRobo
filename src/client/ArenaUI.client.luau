@@ -652,7 +652,7 @@ end
 
 local function getPlayerScrap(): number
 	local leaderstats = player:FindFirstChild("leaderstats")
-	local scrapValue = leaderstats and (leaderstats:FindFirstChild("Materials") or leaderstats:FindFirstChild("Scrap"))
+	local scrapValue = leaderstats and leaderstats:FindFirstChild("Scrap")
 	if scrapValue and scrapValue:IsA("IntValue") then
 		return scrapValue.Value
 	end
@@ -1032,27 +1032,33 @@ local function buildArenaBody(body: Frame): {[string]: any}
 	buttonRow.Parent = body
 
 	local buttonPadding = Instance.new("UIPadding")
-	buttonPadding.PaddingTop = UDim.new(0, 4)
 	buttonPadding.PaddingBottom = UDim.new(0, 8)
 	buttonPadding.Parent = buttonRow
 
 	local buttonLayout = Instance.new("UIListLayout")
-	buttonLayout.Padding = UDim.new(0, 6)
+	buttonLayout.Padding = UDim.new(0, 4)
 	buttonLayout.Parent = buttonRow
 
-	local spectate = makeActionButton(buttonRow, "Watch Fight", Color3.fromRGB(56, 71, 99))
+	local actionSection = Instance.new("Frame")
+	actionSection.Name = "ActionSection"
+	actionSection.AutomaticSize = Enum.AutomaticSize.Y
+	actionSection.Size = UDim2.new(1, 0, 0, 0)
+	actionSection.BackgroundTransparency = 1
+	actionSection.Parent = buttonRow
 
-	local sectionSpacer = Instance.new("Frame")
-	sectionSpacer.Name = "SectionSpacer"
-	sectionSpacer.Size = UDim2.new(1, 0, 0, 18)
-	sectionSpacer.BackgroundTransparency = 1
-	sectionSpacer.Parent = buttonRow
+	local actionLayout = Instance.new("UIListLayout")
+	actionLayout.Padding = UDim.new(0, 6)
+	actionLayout.Parent = actionSection
+
+	local actionPadding = Instance.new("UIPadding")
+	actionPadding.PaddingTop = UDim.new(0, 14)
+	actionPadding.Parent = actionSection
 
 	local actionRowA = Instance.new("Frame")
 	actionRowA.Name = "ActionRowA"
 	actionRowA.Size = UDim2.new(1, 0, 0, 30)
 	actionRowA.BackgroundTransparency = 1
-	actionRowA.Parent = buttonRow
+	actionRowA.Parent = actionSection
 
 	local actionRowALayout = Instance.new("UIListLayout")
 	actionRowALayout.FillDirection = Enum.FillDirection.Horizontal
@@ -1068,7 +1074,7 @@ local function buildArenaBody(body: Frame): {[string]: any}
 	actionRowB.Name = "ActionRowB"
 	actionRowB.Size = UDim2.new(1, 0, 0, 30)
 	actionRowB.BackgroundTransparency = 1
-	actionRowB.Parent = buttonRow
+	actionRowB.Parent = actionSection
 
 	local actionRowBLayout = Instance.new("UIListLayout")
 	actionRowBLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -1079,6 +1085,19 @@ local function buildArenaBody(body: Frame): {[string]: any}
 	local predictB = makeActionButton(actionRowB, "Predict B", Color3.fromRGB(69, 108, 176))
 	predictB.Size = UDim2.new(1, -92, 0, 30)
 	local upgradeB = makeCompactRowButton(actionRowB, 86, "+ Upgrade", Color3.fromRGB(116, 92, 58))
+
+	local footerSection = Instance.new("Frame")
+	footerSection.Name = "FooterSection"
+	footerSection.AutomaticSize = Enum.AutomaticSize.Y
+	footerSection.Size = UDim2.new(1, 0, 0, 0)
+	footerSection.BackgroundTransparency = 1
+	footerSection.Parent = buttonRow
+
+	local footerPadding = Instance.new("UIPadding")
+	footerPadding.PaddingTop = UDim.new(0, 2)
+	footerPadding.Parent = footerSection
+
+	local spectate = makeActionButton(footerSection, "Watch Fight", Color3.fromRGB(56, 71, 99))
 
 	return {
 		status = status,
@@ -1711,9 +1730,9 @@ local function bindCreditsRefresh()
 	if credits and credits:IsA("IntValue") then
 		credits:GetPropertyChangedSignal("Value"):Connect(refreshAll)
 	end
-	local materials = leaderstats and (leaderstats:FindFirstChild("Materials") or leaderstats:FindFirstChild("Scrap"))
-	if materials and materials:IsA("IntValue") then
-		materials:GetPropertyChangedSignal("Value"):Connect(refreshAll)
+	local scrap = leaderstats and leaderstats:FindFirstChild("Scrap")
+	if scrap and scrap:IsA("IntValue") then
+		scrap:GetPropertyChangedSignal("Value"):Connect(refreshAll)
 	end
 end
 

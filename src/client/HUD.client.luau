@@ -57,7 +57,7 @@ local function makeLabel(initialText: string): TextLabel
 end
 
 local creditsLabel = makeLabel("Credits: 0")
-local materialsLabel = makeLabel("Materials: 0")
+local scrapLabel = makeLabel("Scrap: 0")
 local multiplierLabel = makeLabel("Rewards: x1.0")
 multiplierLabel.TextColor3 = Color3.fromRGB(220, 228, 236)
 
@@ -122,6 +122,13 @@ pickupPopLabel.Parent = gui
 local lastThreatLevel = 0
 local pickupPopToken = 0
 
+local function formatRewardMultiplier(value: number): string
+	local formatted = string.format("%.2f", value)
+	formatted = string.gsub(formatted, "0+$", "")
+	formatted = string.gsub(formatted, "%.$", ".0")
+	return formatted
+end
+
 local function pulseScreen()
 	if not Constants.Accessibility.ENABLE_SCREEN_PULSE then
 		return
@@ -142,7 +149,7 @@ end
 local function showPickupPop(amount: number)
 	pickupPopToken += 1
 	local current = pickupPopToken
-	pickupPopLabel.Text = ("+%d Materials"):format(amount)
+	pickupPopLabel.Text = ("+%d Scrap"):format(amount)
 	pickupPopLabel.Visible = true
 	task.delay(0.8, function()
 		if current == pickupPopToken then
@@ -154,23 +161,23 @@ end
 local function wireLeaderstats()
 	local leaderstats = player:WaitForChild("leaderstats")
 	local credits = leaderstats:WaitForChild("Credits") :: IntValue
-	local materials = leaderstats:WaitForChild("Materials") :: IntValue
-	local lastMaterials = materials.Value
+	local scrap = leaderstats:WaitForChild("Scrap") :: IntValue
+	local lastScrap = scrap.Value
 
 	local function refreshEconomy()
 		creditsLabel.Text = ("Credits: %d"):format(credits.Value)
-		materialsLabel.Text = ("Materials: %d"):format(materials.Value)
+		scrapLabel.Text = ("Scrap: %d"):format(scrap.Value)
 
-		if materials.Value > lastMaterials then
-			local gained = materials.Value - lastMaterials
+		if scrap.Value > lastScrap then
+			local gained = scrap.Value - lastScrap
 			showPickupPop(gained)
 			SoundLimiter.Play2D("PICKUP", "rbxasset://sounds/action_get.wav", 0.18, 1.15)
 		end
-		lastMaterials = materials.Value
+		lastScrap = scrap.Value
 	end
 
 	credits:GetPropertyChangedSignal("Value"):Connect(refreshEconomy)
-	materials:GetPropertyChangedSignal("Value"):Connect(refreshEconomy)
+	scrap:GetPropertyChangedSignal("Value"):Connect(refreshEconomy)
 	refreshEconomy()
 end
 
@@ -181,9 +188,9 @@ local function refreshMultiplier()
 	local multiplier = tonumber(player:GetAttribute("RewardMultiplier") or 1) or 1
 	local nextCost = tonumber(player:GetAttribute("RewardUpgradeNextCost") or 0) or 0
 	local nextMultiplier = Constants.Arena.RewardMultiplierByLevel[level + 1]
-	multiplierLabel.Text = ("Rewards: x%.1f"):format(multiplier)
+	multiplierLabel.Text = ("Rewards: x%s"):format(formatRewardMultiplier(multiplier))
 	if nextCost > 0 then
-		nextRewardLabel.Text = ("Next: x%.1f"):format(nextMultiplier or multiplier)
+		nextRewardLabel.Text = ("Next: x%s"):format(formatRewardMultiplier(nextMultiplier or multiplier))
 		rewardUpgradeButton.Text = "Upgrade Rewards"
 		rewardUpgradeButton.Active = true
 		rewardUpgradeButton.AutoButtonColor = true

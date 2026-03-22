@@ -15,14 +15,14 @@ if not runtimeFolder then
 	runtimeFolder.Parent = ServerScriptService
 end
 
-local addMaterialsBindable = runtimeFolder:FindFirstChild(Constants.Bindables.AddMaterials)
-if not (addMaterialsBindable and addMaterialsBindable:IsA("BindableFunction")) then
-	if addMaterialsBindable then
-		addMaterialsBindable:Destroy()
+local addScrapBindable = runtimeFolder:FindFirstChild(Constants.Bindables.AddScrap)
+if not (addScrapBindable and addScrapBindable:IsA("BindableFunction")) then
+	if addScrapBindable then
+		addScrapBindable:Destroy()
 	end
-	addMaterialsBindable = Instance.new("BindableFunction")
-	addMaterialsBindable.Name = Constants.Bindables.AddMaterials
-	addMaterialsBindable.Parent = runtimeFolder
+	addScrapBindable = Instance.new("BindableFunction")
+	addScrapBindable.Name = Constants.Bindables.AddScrap
+	addScrapBindable.Parent = runtimeFolder
 end
 
 local toastRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.Toast)
@@ -56,11 +56,11 @@ end
 local function getPlayerStats(player: Player): (IntValue, IntValue)
 	local leaderstats = getOrCreateLeaderstats(player)
 	local credits = getOrCreateIntValue(leaderstats, "Credits", Constants.GameSettings.StartingCoins)
-	local materials = getOrCreateIntValue(leaderstats, "Materials", Constants.GameSettings.StartingMaterials)
-	return credits, materials
+	local scrap = getOrCreateIntValue(leaderstats, "Scrap", Constants.GameSettings.StartingScrap)
+	return credits, scrap
 end
 
-(addMaterialsBindable :: BindableFunction).OnInvoke = function(player: Player, amount: number, reason: string)
+(addScrapBindable :: BindableFunction).OnInvoke = function(player: Player, amount: number, reason: string)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then
 		return false
 	end
@@ -68,10 +68,14 @@ end
 		return false
 	end
 
-	local _, materials = getPlayerStats(player)
-	materials.Value += math.max(1, math.floor(amount))
+	local _, scrap = getPlayerStats(player)
+	local granted = math.max(1, math.floor(amount))
+	scrap.Value += granted
 	TutorialService.MarkMaterialCollected(player)
-	print(("[EconomyService] +%d materials to %s (%s)"):format(amount, player.Name, reason or "unknown"))
+	if reason == "drone_drop" then
+		toastRemote:FireClient(player, ("+%d Scrap"):format(granted))
+	end
+	print(("[EconomyService] +%d scrap to %s (%s)"):format(granted, player.Name, reason or "unknown"))
 	return true
 end
 
@@ -219,7 +223,7 @@ local function ensureSellTerminal(): ProximityPrompt
 	local prompt = terminalModel:FindFirstChildWhichIsA("ProximityPrompt", true)
 	if not prompt then
 		prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Sell Materials"
+		prompt.ActionText = "Sell Scrap"
 		prompt.ObjectText = "Sell Terminal"
 		prompt.HoldDuration = 0.3
 		prompt.MaxActivationDistance = 12
@@ -249,18 +253,18 @@ end
 local sellPrompt = ensureSellTerminal()
 
 sellPrompt.Triggered:Connect(function(player: Player)
-	local credits, materials = getPlayerStats(player)
-	if materials.Value <= 0 then
-		toastRemote:FireClient(player, "No materials to sell.")
+	local credits, scrap = getPlayerStats(player)
+	if scrap.Value <= 0 then
+		toastRemote:FireClient(player, "No scrap to sell.")
 		return
 	end
 
-	local soldMaterials = materials.Value
-	local creditsEarned = soldMaterials * Constants.GameSettings.SellPricePerMaterial
-	materials.Value = 0
+	local soldScrap = scrap.Value
+	local creditsEarned = soldScrap * Constants.GameSettings.SellPricePerScrap
+	scrap.Value = 0
 	credits.Value += creditsEarned
-	print(("[EconomyService] %s sold %d materials for %d credits"):format(player.Name, soldMaterials, creditsEarned))
-	toastRemote:FireClient(player, ("Sold %d materials for %d credits"):format(soldMaterials, creditsEarned))
+	print(("[EconomyService] %s sold %d scrap for %d credits"):format(player.Name, soldScrap, creditsEarned))
+	toastRemote:FireClient(player, ("Sold %d scrap for %d credits"):format(soldScrap, creditsEarned))
 end)
 
 Players.PlayerAdded:Connect(function(player)

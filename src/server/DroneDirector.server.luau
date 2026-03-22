@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -13,11 +14,12 @@ local TutorialService = require(script.Parent:WaitForChild("TutorialService"))
 
 local runtimeFolder = ServerScriptService:WaitForChild("ServerRuntime")
 local addHeatBindable = runtimeFolder:WaitForChild(Constants.Bindables.AddHeat) :: BindableEvent
-local addMaterialsBindable = runtimeFolder:WaitForChild(Constants.Bindables.AddMaterials) :: BindableFunction
+local addScrapBindable = runtimeFolder:WaitForChild(Constants.Bindables.AddScrap) :: BindableFunction
 
 local empFiredRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.EMPFired)
 local fxRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.FXEvent)
 local droneSnapshotRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.DroneSnapshot)
+local toastRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.Toast)
 local zoneDanger = Workspace:WaitForChild("Zone_Danger") :: BasePart
 if not zoneDanger:IsA("BasePart") then
 	error("Zone_Danger must be a BasePart")
@@ -30,10 +32,10 @@ if not droneFolder then
 	droneFolder.Parent = Workspace
 end
 
-local pickupFolder = Workspace:FindFirstChild("MaterialDrops")
+local pickupFolder = Workspace:FindFirstChild("Pickups")
 if not pickupFolder then
 	pickupFolder = Instance.new("Folder")
-	pickupFolder.Name = "MaterialDrops"
+	pickupFolder.Name = "Pickups"
 	pickupFolder.Parent = Workspace
 end
 
@@ -564,57 +566,215 @@ local function countAliveDrones(): number
 	return alive
 end
 
-local function spawnPickup(hitPosition: Vector3)
+local function getPlayerCreditsValue(player: Player): IntValue?
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not (leaderstats and leaderstats:IsA("Folder")) then
+		return nil
+	end
+
+	local credits = leaderstats:FindFirstChild("Credits")
+	if credits and credits:IsA("IntValue") then
+		return credits
+	end
+
+	return nil
+end
+
+local function awardFallbackCredits(player: Player, amount: number)
+	if amount <= 0 then
+		return
+	end
+
+	local credits = getPlayerCreditsValue(player)
+	if not credits then
+		return
+	end
+
+	credits.Value += amount
+	toastRemote:FireClient(player, ("+%d Credits"):format(amount))
+	print(("[DroneDirector] +%d credits to %s"):format(amount, player.Name))
+end
+
+local function spawnScrapDrop(player: Player, position: Vector3)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {droneFolder, pickupFolder}
-
-	local rayOrigin = hitPosition + Vector3.new(0, 10, 0)
-	local groundResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -500, 0), rayParams)
-
-	local spawnPosition = hitPosition
-	local groundFound = false
-	if groundResult then
-		groundFound = true
-		local groundY = groundResult.Position.Y
-		local target = groundResult.Position + Vector3.new(0, 1.5, 0)
-		spawnPosition = Vector3.new(target.X, math.min(target.Y, groundY + 20), target.Z)
+	local settleOrigin = position + Vector3.new(0, Constants.Drones.ScrapDropSpawnHeight, 0)
+	local raycastResult = Workspace:Raycast(settleOrigin, Vector3.new(0, -24, 0), rayParams)
+	local settledPosition = position + Vector3.new(0, 1.5, 0)
+	if raycastResult then
+		settledPosition = raycastResult.Position + Vector3.new(0, Constants.Drones.ScrapDropSettleLift, 0)
 	end
-	print(("[DroneDirector] Pickup spawn=%s groundFound=%s"):format(tostring(spawnPosition), tostring(groundFound)))
 
-	local pickup = Instance.new("Part")
-	pickup.Name = "MaterialPickup"
-	pickup.Shape = Enum.PartType.Block
-	pickup.Material = Enum.Material.Neon
-	pickup.Color = Color3.fromRGB(0, 220, 255)
-	pickup.Size = Vector3.new(1, 1, 1)
-	pickup.Anchored = false
-	pickup.CanCollide = true
-	pickup.Massless = false
-	pickup.CustomPhysicalProperties = PhysicalProperties.new(1, 0.6, 0.4)
-	pickup.Position = spawnPosition
-	pickup.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
-	pickup.Parent = pickupFolder
-	fxRemote:FireAllClients({
-		type = "DROP_CLINK",
-		position = spawnPosition,
-	})
+	local scrapDrop = Instance.new("Part")
+	scrapDrop.Name = "ScrapDrop"
+	scrapDrop.Shape = Enum.PartType.Ball
+	scrapDrop.Material = Enum.Material.Neon
+	scrapDrop.Color = Color3.fromRGB(120, 255, 190)
+	scrapDrop.Size = Vector3.new(1.2, 1.2, 1.2)
+	scrapDrop.Transparency = 0.06
+	scrapDrop.CanCollide = false
+	scrapDrop.CanQuery = false
+	scrapDrop.CanTouch = true
+	scrapDrop.Anchored = true
+	scrapDrop.CFrame = CFrame.new(settleOrigin)
+	scrapDrop.Parent = pickupFolder
+	scrapDrop:SetAttribute("PickupOwnerUserId", player.UserId)
 
-	local taken = false
-	pickup.Touched:Connect(function(hit)
-		if taken then
+	local light = Instance.new("PointLight")
+	light.Color = scrapDrop.Color
+	light.Brightness = 1.8
+	light.Range = 10
+	light.Parent = scrapDrop
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = scrapDrop.Color
+	highlight.FillTransparency = 0.45
+	highlight.OutlineColor = Color3.fromRGB(255, 241, 184)
+	highlight.OutlineTransparency = 0.25
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.Parent = scrapDrop
+
+	local settleTween = TweenService:Create(
+		scrapDrop,
+		TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{Position = settledPosition}
+	)
+	settleTween:Play()
+
+	local idleBobTween = TweenService:Create(
+		scrapDrop,
+		TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{Position = settledPosition + Vector3.new(0, 0.18, 0)}
+	)
+
+	local glowTween = TweenService:Create(
+		light,
+		TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{Brightness = 2.5}
+	)
+	glowTween:Play()
+
+	local collected = false
+	local touchConnection: RBXScriptConnection? = nil
+	local magnetConnection: RBXScriptConnection? = nil
+	local settled = false
+	local function collect()
+		if collected then
 			return
 		end
-		local player = Players:GetPlayerFromCharacter(hit.Parent)
-		if not player then
+		collected = true
+		if touchConnection then
+			touchConnection:Disconnect()
+			touchConnection = nil
+		end
+		if magnetConnection then
+			magnetConnection:Disconnect()
+			magnetConnection = nil
+		end
+		settleTween:Cancel()
+		idleBobTween:Cancel()
+		glowTween:Cancel()
+		local popTween = TweenService:Create(
+			scrapDrop,
+			TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+			{
+				Size = Vector3.new(0.2, 0.2, 0.2),
+				Transparency = 1,
+			}
+		)
+		popTween:Play()
+		addScrapBindable:Invoke(player, 1, "drone_drop")
+		fxRemote:FireAllClients({
+			type = "DROP_CLINK",
+			position = scrapDrop.Position,
+		})
+		task.delay(0.14, function()
+			if scrapDrop.Parent then
+				scrapDrop:Destroy()
+			end
+		end)
+		print(("[DroneDirector] spawned scrap collected by %s at %s"):format(player.Name, tostring(position)))
+	end
+
+	settleTween.Completed:Connect(function(playbackState)
+		if collected or playbackState ~= Enum.PlaybackState.Completed or not scrapDrop.Parent then
 			return
 		end
-		taken = true
-		addMaterialsBindable:Invoke(player, 1, "drone_drop")
-		pickup:Destroy()
+		settled = true
+		idleBobTween:Play()
 	end)
 
-	Debris:AddItem(pickup, 25)
+	touchConnection = scrapDrop.Touched:Connect(function(hit: BasePart)
+		if collected then
+			return
+		end
+
+		local character = hit:FindFirstAncestorOfClass("Model")
+		if not character then
+			return
+		end
+
+		local touchingPlayer = Players:GetPlayerFromCharacter(character)
+		if touchingPlayer ~= player then
+			return
+		end
+
+		collect()
+	end)
+
+	magnetConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		if collected or not scrapDrop.Parent then
+			if magnetConnection then
+				magnetConnection:Disconnect()
+				magnetConnection = nil
+			end
+			return
+		end
+
+		local character = player.Character
+		local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+		if not (rootPart and rootPart:IsA("BasePart")) then
+			return
+		end
+
+		local offset = rootPart.Position - scrapDrop.Position
+		local distance = offset.Magnitude
+		if distance > Constants.Drones.ScrapMagnetRadius then
+			return
+		end
+
+		if not settled then
+			settleTween:Cancel()
+			scrapDrop.Position = settledPosition
+			settled = true
+			idleBobTween:Play()
+		end
+
+		idleBobTween:Cancel()
+		local targetPosition = rootPart.Position + Vector3.new(0, 1.4, 0)
+		local toTarget = targetPosition - scrapDrop.Position
+		local step = math.min(toTarget.Magnitude, Constants.Drones.ScrapMagnetSpeed * deltaTime)
+		if toTarget.Magnitude > 0.001 then
+			scrapDrop.Position += toTarget.Unit * step
+		end
+
+		if distance <= Constants.Drones.ScrapCollectRadius then
+			collect()
+		end
+	end)
+
+	Debris:AddItem(scrapDrop, Constants.Drones.ScrapDropLifetime)
+	print(("[DroneDirector] spawned scrap drop for %s at %s"):format(player.Name, tostring(position)))
+end
+
+local function rewardDroneDefeat(player: Player, position: Vector3)
+	if math.random() <= Constants.Drones.ScrapDropChance then
+		spawnScrapDrop(player, position)
+		return
+	end
+
+	awardFallbackCredits(player, Constants.Drones.CreditFallbackReward)
 end
 
 local function setDronePhysics(droneState: DroneState, anchored: boolean, canCollide: boolean)
@@ -723,8 +883,8 @@ local function disableDrone(droneState: DroneState, player: Player, duration: nu
 	forceAggroOnPlayer(player, dronePosition)
 
 	if droneState.hp <= 0 then
+		rewardDroneDefeat(player, dronePosition)
 		eliminateDrone(droneState, "emp_destroyed")
-		spawnPickup(dronePosition)
 		TutorialService.MarkDroneDestroyed(player)
 		return
 	end
@@ -878,7 +1038,7 @@ local function canDetectTarget(droneState: DroneState, player: Player, ignoreFov
 
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {droneFolder, pickupFolder}
+	rayParams.FilterDescendantsInstances = {droneFolder}
 	local result = Workspace:Raycast(origin, toTarget, rayParams)
 	if result and result.Instance and result.Instance:IsDescendantOf(character) then
 		return true, rootPart, result.Position
@@ -984,7 +1144,7 @@ local function tryDroneAttack(droneState: DroneState)
 	local shotDir = computeShotDirection(droneState, targetRoot)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {droneFolder, pickupFolder}
+	rayParams.FilterDescendantsInstances = {droneFolder}
 	local rayDistance = Constants.Drones.AttackRange
 	local result = Workspace:Raycast(shotOrigin, shotDir * rayDistance, rayParams)
 	local hitPosition = shotOrigin + (shotDir * rayDistance)

@@ -21,13 +21,13 @@ Constants.Remotes = {
 Constants.Bindables = {
 	AddHeat = "AddHeat",
 	GetHeat = "GetHeat",
-	AddMaterials = "AddMaterials",
+	AddScrap = "AddScrap",
 }
 
 Constants.GameSettings = {
 	StartingCoins = 50,
-	StartingMaterials = 0,
-	SellPricePerMaterial = 12,
+	StartingScrap = 0,
+	SellPricePerScrap = 12,
 }
 
 Constants.Heat = {
@@ -110,6 +110,14 @@ Constants.Drones = {
 	SpawnReplacementDelayMin = 0.25,
 	SpawnReplacementDelayMax = 0.6,
 	DebrisLifetime = 4.0,
+	ScrapDropChance = 0.35,
+	CreditFallbackReward = 2,
+	ScrapDropSpawnHeight = 4.5,
+	ScrapDropSettleLift = 0.7,
+	ScrapDropLifetime = 12,
+	ScrapMagnetRadius = 8,
+	ScrapCollectRadius = 2.5,
+	ScrapMagnetSpeed = 34,
 	StunWobblePos = 0.6,
 	StunWobbleRotDeg = 8,
 	StunWobbleHz = 8,
@@ -216,12 +224,12 @@ Constants.Arena = {
 		Aggression = 0.10,
 	},
 	UpgradeStatKey = "Power",
-	UpgradeMaterialName = "Materials",
+	UpgradeMaterialName = "Scrap",
 	PowerUpgradeBaseBonus = 0.6,
-	PowerUpgradeCostByLevel = {25, 40, 60, 85, 115, 150},
-	PowerUpgradeCostGrowth = 1.28,
-	RewardMultiplierByLevel = {1.05, 1.10, 1.20, 1.35, 1.50},
-	RewardUpgradeCostByLevel = {1, 5, 15, 30, 60},
+	PowerUpgradeCostByLevel = {1, 3, 6, 10, 15, 21},
+	PowerUpgradeCostGrowth = 1.35,
+	RewardMultiplierByLevel = {1.10, 1.25, 1.50, 2.00},
+	RewardUpgradeCostByLevel = {100, 250, 500, 900},
 	UpgradeDiminishingScale = 2.6,
 	UpgradeDiminishingRate = 0.45,
 	RoundPerformanceSwing = 0.055,

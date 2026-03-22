@@ -11,7 +11,7 @@ local tutorialRemote = Net.GetOrCreateRemoteEvent(Constants.Remotes.TutorialActi
 
 local STEP_TEXT = {
 	[1] = "Destroy a drone",
-	[2] = "Collect material",
+	[2] = "Collect scrap",
 	[3] = "Upgrade a fighter",
 	[4] = "Make a prediction",
 }

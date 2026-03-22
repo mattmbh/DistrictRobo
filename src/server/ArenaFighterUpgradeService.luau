@@ -38,11 +38,6 @@ local function getScrapValue(player: Player): IntValue?
 		return nil
 	end
 
-	local materials = leaderstats:FindFirstChild("Materials")
-	if materials and materials:IsA("IntValue") then
-		return materials
-	end
-
 	local scrap = leaderstats:FindFirstChild("Scrap")
 	if scrap and scrap:IsA("IntValue") then
 		return scrap
@@ -133,7 +128,7 @@ function ArenaFighterUpgradeService.ApplySharedUpgrade(player: Player, fighterId
 	end
 
 	if not ArenaFighterUpgradeService.SpendPlayerScrap(player, cost) then
-		return false, ("Not enough %s"):format(Constants.Arena.UpgradeMaterialName)
+		return false, ("Need %d %s"):format(cost, Constants.Arena.UpgradeMaterialName)
 	end
 
 	local newLevel = ArenaFighterUpgradeService.GetSharedUpgradeLevel(fighterId, statName) + 1

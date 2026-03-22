@@ -64,7 +64,7 @@ ArenaFighterDefs.Roster = {
 			Focus = "Power",
 		},
 		UpgradeCosts = {
-			Power = {Materials = 3},
+			Power = {Scrap = 3},
 		},
 		Wins = 0,
 		Losses = 0,
@@ -92,7 +92,7 @@ ArenaFighterDefs.Roster = {
 			Focus = "Toughness",
 		},
 		UpgradeCosts = {
-			Toughness = {Materials = 3},
+			Toughness = {Scrap = 3},
 		},
 		Wins = 0,
 		Losses = 0,
@@ -120,7 +120,7 @@ ArenaFighterDefs.Roster = {
 			Focus = "Aggression",
 		},
 		UpgradeCosts = {
-			Aggression = {Materials = 3},
+			Aggression = {Scrap = 3},
 		},
 		Wins = 0,
 		Losses = 0,
@@ -148,7 +148,7 @@ ArenaFighterDefs.Roster = {
 			Focus = "Speed",
 		},
 		UpgradeCosts = {
-			Speed = {Materials = 3},
+			Speed = {Scrap = 3},
 		},
 		Wins = 0,
 		Losses = 0,
